@@ -13,8 +13,11 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..services.paper_engine.account import ClosedTrade
-from ..services.paper_engine.models import Order, Position, Side
+from ..services.paper_engine.models import Order, OrderStatus, OrderType, Position, Side
 from . import models as m
+
+# Order states that are still live and should be re-injected on restart.
+_RESTORABLE = ("accepted", "partially_filled", "triggered")
 
 
 def _utc(ms: int) -> datetime:
@@ -106,6 +109,33 @@ async def load_open_positions(session: AsyncSession, account_id: str) -> List[Po
             entry_reason=r.entry_reason, strategy_id=r.strategy_id,
             opened_ts_ms=int(r.opened_at.timestamp() * 1000), id=r.id)
         out.append(pos)
+    return out
+
+
+async def load_pending_orders(session: AsyncSession, account_id: str) -> List[Order]:
+    """Rehydrate resting/live orders (limits, stops, TP) after a restart so the
+    engine can keep working them. Trailing stops are position-attached and are
+    recovered with the position, not here."""
+    rows = (await session.execute(
+        select(m.OrderRow).where(
+            m.OrderRow.account_id == account_id,
+            m.OrderRow.status.in_(_RESTORABLE)))).scalars()
+    out: List[Order] = []
+    for r in rows:
+        try:
+            otype = OrderType(r.type)
+        except ValueError:
+            continue
+        if otype is OrderType.TRAILING_STOP:
+            continue
+        order = Order(
+            symbol=r.symbol, side=Side(r.side), type=otype, qty=Decimal(str(r.qty)),
+            price=Decimal(str(r.price)) if r.price is not None else None,
+            trigger_price=Decimal(str(r.trigger_price)) if r.trigger_price is not None else None,
+            reduce_only=r.reduce_only, source=r.source, reason=r.reason, id=r.id,
+            status=OrderStatus(r.status))
+        order._rested = True  # it was already resting in the book pre-restart
+        out.append(order)
     return out
 
 

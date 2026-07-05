@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+from .api.metrics import metrics_router
 from .api.routes import router
 from .api.ws import hub, ws_router
 from .core.config import get_settings
@@ -40,6 +41,7 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(ws_router)
+app.include_router(metrics_router)
 
 
 @app.get("/")

@@ -42,9 +42,10 @@ class Persistence:
 
     # ── recovery ────────────────────────────────────────────────────
 
-    async def recover(self, account: PaperAccount) -> int:
-        """Reload open positions + last balance into the in-memory account so a
-        restart never loses track of live exposure. Returns positions restored."""
+    async def recover(self, account: PaperAccount, engine: Optional[PaperEngine] = None) -> int:
+        """Reload open positions + last balance into the in-memory account, and
+        (if an engine is given) re-inject resting orders, so a restart never
+        loses track of live exposure or working orders. Returns positions restored."""
         if not self.enabled:
             return 0
         async with self.db.sessionmaker() as session:  # type: ignore[union-attr]
@@ -55,9 +56,13 @@ class Persistence:
             positions = await repo.load_open_positions(session, self.account_id)
             for pos in positions:
                 account.positions[pos.symbol] = pos
+            orders = await repo.load_pending_orders(session, self.account_id) if engine else []
             await session.commit()
-        if positions:
-            logger.info("recovered {} open position(s) from DB", len(positions))
+        for order in orders:
+            engine.restore_pending(order, 0)  # type: ignore[union-attr]
+        if positions or orders:
+            logger.info("recovered {} open position(s), {} working order(s) from DB",
+                        len(positions), len(orders))
         return len(positions)
 
     # ── reads (durable history across restarts) ─────────────────────

@@ -17,6 +17,7 @@
 - [x] Position accounting: avg entry, realized/unrealized, isolated margin, liq price ← this commit
 - [x] Funding accrual against real funding rates ← this commit
 - [x] Persistence wiring (engine ↔ Postgres, write-behind), crash recovery of open positions ← persistence commit
+- [x] Crash recovery of working/resting orders (limits, stops, TP) ← recovery commit
 - [x] Equity snapshotting on every fill ← persistence commit
 - [ ] Positions & Orders page reads persisted closed trades across restarts (currently in-memory feed)
 
@@ -39,7 +40,8 @@
 - [ ] Bybit Demo Trading execution provider behind `ExecutionProvider`
 - [ ] Binance Futures Testnet market-data + execution providers
 - [ ] Settings/Admin: mode switch, fill-sim settings UI, audit viewer, env checks
-- [ ] Rate limiting, secret rotation, Prometheus metrics, load/QA pass
+- [x] Prometheus /metrics endpoint (data staleness, reconnects, equity, kill switches, alerts) ← metrics commit
+- [ ] Rate limiting, secret rotation, load/QA pass
 
 ## MVP vs V2 cut line
 

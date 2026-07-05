@@ -95,7 +95,7 @@ class Runtime:
     async def start(self) -> None:
         logger.info("runtime starting: mode={} symbols={}", self.settings.vantage_mode, self.symbols)
         await self.db.connect()
-        restored = await self.persistence.recover(self.account)
+        restored = await self.persistence.recover(self.account, self.engine)
         if restored:
             self.peak_equity = max(self.peak_equity, self._equity())
         self.persistence.start()

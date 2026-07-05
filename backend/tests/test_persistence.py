@@ -56,6 +56,36 @@ async def test_open_position_survives_restart():
     await db.disconnect()
 
 
+async def test_working_limit_order_survives_restart():
+    db = await _fresh_db()
+
+    # ── session 1: place a resting limit far from market, persist it ──
+    acct1 = PaperAccount(starting_balance=Decimal("100000"))
+    eng1 = PaperEngine(acct1, FillConfig())
+    p1 = Persistence(db, ACCT, USER, "paper")
+    await p1.recover(acct1, eng1)
+    eng1.on_order_update = lambda o, note: p1.record_order(o)
+    limit = Order("BTCUSDT", Side.BUY, OrderType.LIMIT, Decimal("0.1"),
+                  price=Decimal("40000"))            # well below market → rests
+    eng1.submit(limit, now_ms=0)
+    eng1.on_book(book("BTCUSDT", 100, "60000", "60005"))
+    assert limit.id in [o.id for o in eng1.open_orders()]
+    await _drain(p1)
+
+    # ── session 2: fresh engine recovers the working order ───────────
+    acct2 = PaperAccount(starting_balance=Decimal("100000"))
+    eng2 = PaperEngine(acct2, FillConfig())
+    p2 = Persistence(db, ACCT, USER, "paper")
+    await p2.recover(acct2, eng2)
+
+    recovered = eng2.open_orders()
+    assert len(recovered) == 1
+    assert recovered[0].id == limit.id
+    assert recovered[0].price == Decimal("40000")
+    assert recovered[0]._rested is True
+    await db.disconnect()
+
+
 async def test_disabled_db_is_noop():
     db = Database("postgresql+asyncpg://bad:bad@127.0.0.1:1/none")
     await db.connect()  # fails → disabled

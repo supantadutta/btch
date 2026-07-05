@@ -82,6 +82,13 @@ class PaperEngine:
     def open_orders(self) -> List[Order]:
         return [p.order for p in self._pending.values()]
 
+    def restore_pending(self, order: Order, now_ms: int) -> None:
+        """Re-inject a recovered resting order after a restart WITHOUT re-running
+        entry validation — it was already accepted before the crash. It becomes
+        immediately eligible to fill against the next book snapshot."""
+        self._pending[order.id] = _Pending(order, submitted_ts_ms=0,
+                                            entry_reason=order.reason)
+
     # ── market data tick ────────────────────────────────────────────
 
     def on_book(self, book: BookTop) -> List[Fill]:
