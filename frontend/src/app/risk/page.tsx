@@ -6,6 +6,7 @@ import { post } from "@/lib/api";
 export default function RiskCenter() {
   const { data: summary } = usePoll<any>("/risk/summary", 3000);
   const { data: switches, reload } = usePoll<any[]>("/killswitch", 2000);
+  const { data: alerts } = usePoll<any[]>("/alerts?limit=30", 3000);
 
   const act = async (path: string, body: any) => { try { await post(path, body); reload(); } catch {} };
 
@@ -78,6 +79,37 @@ export default function RiskCenter() {
         ) : (
           <EmptyState title="All systems armed"
             hint="Kill switches trip automatically on stale data, loss limits, drawdown, slippage or volatility spikes — or manually via Emergency Stop." />
+        )}
+      </Card>
+
+      <Card title="Alert Center" actions={
+        <span className="text-[11px] text-text-faint">routed to enabled integrations</span>
+      }>
+        {alerts && alerts.length ? (
+          <div className="space-y-1.5 text-[12px] max-h-72 overflow-y-auto">
+            {alerts.map((a) => (
+              <div key={a.id} className="flex items-start gap-2 border-b border-border/40 py-1.5">
+                <Badge tone={a.severity === "critical" ? "crit" : a.severity === "warning" ? "warn" : "neutral"}>
+                  {a.severity}
+                </Badge>
+                <div className="flex-1">
+                  <div className="text-text">{a.title}</div>
+                  <div className="text-text-faint text-[11px]">{a.body}</div>
+                  {Object.keys(a.delivered || {}).length > 0 && (
+                    <div className="text-text-faint text-[10px] mt-0.5">
+                      delivery: {Object.entries(a.delivered).map(([k, v]) => `${k}=${v}`).join(", ")}
+                    </div>
+                  )}
+                </div>
+                <span className="text-text-faint text-[10px] tabular">
+                  {new Date(a.ts_ms).toLocaleTimeString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="No alerts"
+            hint="Kill-switch trips and risk events appear here and fan out to any enabled Telegram / Discord / webhook integration." />
         )}
       </Card>
     </div>

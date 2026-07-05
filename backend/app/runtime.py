@@ -18,6 +18,7 @@ from .core.config import Settings
 from .db.session import Database
 from .services.autotrade import plan_autotrade
 from .services.integrations.registry import REGISTRY, Integration
+from .services.notifications import Alert, NotificationService
 from .services.market_data.bybit import BybitProvider
 from .services.market_data.hub import MarketHub
 from .services.paper_engine.account import PaperAccount
@@ -67,6 +68,7 @@ class Runtime:
         self.strategies = [cls() for cls in ALL_STRATEGIES]
         self.ensemble = Ensemble(self.strategies)
         self.integrations: Dict[str, Integration] = {}
+        self.notifications = NotificationService()
 
         self.db = Database(settings.database_url)
         self.persistence = Persistence(self.db, DEFAULT_ACCOUNT_ID, DEFAULT_USER_ID,
@@ -218,6 +220,35 @@ class Runtime:
             self.broadcast("risk", {"event": "killswitch_tripped", "scope": switch.scope,
                                     "level": switch.level.value if switch.level else None,
                                     "reason": switch.reason})
+        self.emit_alert(
+            severity="critical" if switch.level is Level.HARD else "warning",
+            kind="killswitch",
+            title=f"Kill switch tripped: {switch.scope}",
+            body=f"{(switch.level.value if switch.level else '?')} — {switch.reason}")
+
+    # ── alerts / integrations ───────────────────────────────────────
+
+    def emit_alert(self, severity: str, kind: str, title: str, body: str) -> Alert:
+        """Record an alert and route it to enabled integrations. Safe to call
+        from sync contexts — delivery is scheduled on the running loop if any."""
+        alert = self.notifications.record(Alert(severity=severity, kind=kind,
+                                                title=title, body=body))
+        if self.broadcast:
+            self.broadcast("alerts", alert.as_dict())
+        try:
+            asyncio.get_running_loop().create_task(self.notifications.deliver(alert))
+        except RuntimeError:
+            pass  # no loop (e.g. unit test) — feed still holds the alert
+        return alert
+
+    def add_integration(self, kind: str, name: str, config: dict, secrets: dict) -> Integration:
+        cls = REGISTRY.get(kind)
+        if cls is None:
+            raise ValueError(f"unknown integration kind '{kind}'")
+        inst = cls(config=config, secrets=secrets)
+        self.integrations[kind] = inst
+        self.notifications.set_routes(list(self.integrations.values()))
+        return inst
 
     # ── order gateway (risk + kill switch enforced) ─────────────────
 

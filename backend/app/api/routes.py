@@ -328,16 +328,46 @@ async def integrations_catalog():
 @router.get("/integrations")
 async def list_integrations(request: Request):
     r = rt(request)
-    return {"data": [{"kind": k, "configured": True} for k in r.integrations.keys()]}
+    return {"data": [{"kind": k, "label": v.label, "category": v.category,
+                      "configured": True, "secrets": type(v).masked(v.secrets)}
+                     for k, v in r.integrations.items()]}
 
 
-@router.post("/integrations/{integration_id}/test")
-async def test_integration(request: Request, integration_id: str):
-    inst = rt(request).integrations.get(integration_id)
+@router.post("/integrations")
+async def create_integration(request: Request, body: IntegrationCreate):
+    """Construct + register an integration. Secrets are held for signing/sending
+    but are NEVER returned in full — the response echoes masked values only."""
+    r = rt(request)
+    try:
+        inst = r.add_integration(body.kind, body.name, body.config, body.secrets)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"data": {"kind": inst.kind, "enabled": True,
+                     "secrets": type(inst).masked(inst.secrets)}}
+
+
+@router.post("/integrations/{kind}/test")
+async def test_integration(request: Request, kind: str):
+    inst = rt(request).integrations.get(kind)
     if not inst:
         raise HTTPException(404, "integration not configured")
     res = await inst.test()
     return {"data": {"ok": res.ok, "message": res.message}}
+
+
+# ── alert center ────────────────────────────────────────────────────
+
+@router.get("/alerts")
+async def alerts(request: Request, limit: int = 50):
+    return {"data": rt(request).notifications.feed(limit)}
+
+
+@router.post("/alerts/{alert_id}/ack")
+async def ack_alert(request: Request, alert_id: str):
+    ok = rt(request).notifications.acknowledge(alert_id)
+    if not ok:
+        raise HTTPException(404, "alert not found")
+    return {"data": {"acknowledged": alert_id}}
 
 
 # ── admin / settings ────────────────────────────────────────────────
