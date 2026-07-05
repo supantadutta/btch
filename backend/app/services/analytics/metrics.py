@@ -1,0 +1,100 @@
+"""Performance metrics over closed trades and equity snapshots.
+Pure functions; used by the analytics API, backtester, and reports.
+All figures are NET of simulated fees/funding/slippage — gross numbers are
+never shown without their cost breakdown."""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from decimal import Decimal
+from typing import List, Optional, Sequence, Tuple
+
+from ..paper_engine.account import ClosedTrade
+
+
+@dataclass
+class PerformanceReport:
+    trades: int
+    wins: int
+    losses: int
+    win_rate: float
+    total_pnl: float
+    gross_profit: float
+    gross_loss: float
+    profit_factor: Optional[float]
+    expectancy: float
+    avg_win: float
+    avg_loss: float
+    max_drawdown: float
+    max_drawdown_pct: float
+    sharpe_like: Optional[float]      # per-trade Sharpe proxy, not annualized
+    avg_hold_time_min: float
+    fees_total: float
+    funding_total: float
+
+
+def equity_curve(starting: float, trades: Sequence[ClosedTrade]) -> List[float]:
+    curve = [starting]
+    for t in sorted(trades, key=lambda t: t.closed_ts_ms):
+        curve.append(curve[-1] + float(t.pnl))
+    return curve
+
+
+def max_drawdown(curve: Sequence[float]) -> Tuple[float, float]:
+    peak, mdd, mdd_pct = float("-inf"), 0.0, 0.0
+    for v in curve:
+        peak = max(peak, v)
+        dd = peak - v
+        if dd > mdd:
+            mdd = dd
+            mdd_pct = dd / peak * 100 if peak > 0 else 0.0
+    return mdd, mdd_pct
+
+
+def performance(starting_balance: float, trades: Sequence[ClosedTrade]) -> PerformanceReport:
+    pnls = [float(t.pnl) for t in trades]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p <= 0]
+    gross_profit = sum(wins)
+    gross_loss = -sum(losses)
+    curve = equity_curve(starting_balance, trades)
+    mdd, mdd_pct = max_drawdown(curve)
+
+    sharpe = None
+    if len(pnls) >= 2:
+        mean = sum(pnls) / len(pnls)
+        var = sum((p - mean) ** 2 for p in pnls) / (len(pnls) - 1)
+        sd = math.sqrt(var)
+        sharpe = mean / sd if sd > 0 else None
+
+    holds = [
+        (t.closed_ts_ms - t.position.opened_ts_ms) / 60_000
+        for t in trades if t.position.opened_ts_ms
+    ]
+    return PerformanceReport(
+        trades=len(pnls), wins=len(wins), losses=len(losses),
+        win_rate=len(wins) / len(pnls) * 100 if pnls else 0.0,
+        total_pnl=sum(pnls), gross_profit=gross_profit, gross_loss=gross_loss,
+        profit_factor=(gross_profit / gross_loss) if gross_loss > 0 else None,
+        expectancy=sum(pnls) / len(pnls) if pnls else 0.0,
+        avg_win=sum(wins) / len(wins) if wins else 0.0,
+        avg_loss=sum(losses) / len(losses) if losses else 0.0,
+        max_drawdown=mdd, max_drawdown_pct=mdd_pct, sharpe_like=sharpe,
+        avg_hold_time_min=sum(holds) / len(holds) if holds else 0.0,
+        fees_total=float(sum((t.position.fees_paid for t in trades), Decimal(0))),
+        funding_total=float(sum((t.position.funding_paid for t in trades), Decimal(0))),
+    )
+
+
+def pnl_histogram(trades: Sequence[ClosedTrade], bins: int = 21) -> List[dict]:
+    pnls = [float(t.pnl) for t in trades]
+    if not pnls:
+        return []
+    lo, hi = min(pnls), max(pnls)
+    width = (hi - lo) / bins or 1.0
+    counts = [0] * bins
+    for p in pnls:
+        idx = min(int((p - lo) / width), bins - 1)
+        counts[idx] += 1
+    return [{"from": lo + i * width, "to": lo + (i + 1) * width, "count": c}
+            for i, c in enumerate(counts)]

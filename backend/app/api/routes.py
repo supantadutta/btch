@@ -1,0 +1,325 @@
+"""REST API. Thin routers over the runtime + services. Auth/RBAC middleware
+is stubbed for the scaffold (JWT helpers exist in core.security); wiring the
+dependency is a Phase-1 task. Every state-changing route is a candidate for
+the audit log."""
+from __future__ import annotations
+
+import time
+from decimal import Decimal
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Query, Request
+
+from ..schemas.api import (
+    BacktestRequest, IntegrationCreate, KillScope, KillTrip, OrderCreate, ProtectRequest,
+    RiskLimitsUpdate,
+)
+from ..services.analytics import metrics, montecarlo
+from ..services.integrations.registry import REGISTRY, catalog
+from ..services.paper_engine.models import (
+    Order, OrderType, Side, TimeInForce,
+)
+from ..services.risk.killswitch import Level
+
+router = APIRouter(prefix="/api/v1")
+
+
+def rt(request: Request):
+    return request.app.state.runtime
+
+
+# ── market data ─────────────────────────────────────────────────────
+
+@router.get("/market/instruments")
+async def instruments(request: Request):
+    return {"data": await rt(request).provider.instruments(rt(request).symbols)}
+
+
+@router.get("/market/candles")
+async def candles(request: Request, symbol: str, tf: str = "1m", limit: int = 200):
+    dq = rt(request).hub.candles.get(symbol)
+    rows = list(dq)[-limit:] if dq else []
+    return {"data": [{"ts_ms": c.ts_ms, "open": c.open, "high": c.high, "low": c.low,
+                      "close": c.close, "volume": c.volume} for c in rows]}
+
+
+@router.get("/market/ticker")
+async def ticker(request: Request, symbol: str):
+    return {"data": rt(request).hub.tickers.get(symbol, {})}
+
+
+@router.get("/market/orderbook")
+async def orderbook(request: Request, symbol: str):
+    b = rt(request).hub.books.get(symbol)
+    if not b:
+        return {"data": None}
+    return {"data": {"bid": str(b.bid), "ask": str(b.ask), "bid_qty": str(b.bid_qty),
+                     "ask_qty": str(b.ask_qty), "spread_bps": str(round(b.spread_bps, 3))}}
+
+
+@router.get("/market/trades")
+async def trades(request: Request, symbol: str, limit: int = 50):
+    dq = rt(request).hub.recent_trades.get(symbol)
+    return {"data": list(dq)[:limit] if dq else []}
+
+
+@router.get("/market/health")
+async def market_health(request: Request):
+    return {"data": rt(request).hub.health()}
+
+
+# ── accounts / orders / positions ───────────────────────────────────
+
+@router.get("/analytics/overview")
+async def overview(request: Request):
+    return {"data": rt(request).overview()}
+
+
+@router.post("/orders")
+async def create_order(request: Request, body: OrderCreate):
+    r = rt(request)
+    order = Order(
+        symbol=body.symbol, side=Side(body.side), type=OrderType(body.type),
+        qty=body.qty, price=body.price, trigger_price=body.trigger_price,
+        trail_offset=body.trail_offset, reduce_only=body.reduce_only,
+        leverage=body.leverage, source="manual", reason=body.reason,
+    )
+    result = r.place_order(order)
+    if not result["accepted"]:
+        raise HTTPException(status_code=422, detail={"code": "risk_rejected",
+                                                     "reasons": result["reasons"]})
+    return {"data": result}
+
+
+@router.get("/orders")
+async def list_orders(request: Request):
+    return {"data": [{"id": o.id, "symbol": o.symbol, "side": o.side.value,
+                      "type": o.type.value, "qty": str(o.qty), "price": str(o.price or ""),
+                      "status": o.status.value, "reason": o.reason}
+                     for o in rt(request).engine.open_orders()]}
+
+
+@router.delete("/orders/{order_id}")
+async def cancel_order(request: Request, order_id: str):
+    ok = rt(request).engine.cancel(order_id)
+    if not ok:
+        raise HTTPException(404, "order not found")
+    return {"data": {"cancelled": order_id}}
+
+
+@router.get("/positions")
+async def positions(request: Request, status: str = "open"):
+    r = rt(request)
+    marks = r._marks()
+    if status == "open":
+        out = []
+        for p in r.account.positions.values():
+            mark = marks.get(p.symbol, p.avg_entry)
+            out.append({
+                "id": p.id, "symbol": p.symbol, "side": p.side.value, "qty": str(p.qty),
+                "avg_entry": str(p.avg_entry), "leverage": str(p.leverage),
+                "mark": str(round(mark, 2)),
+                "unrealized": str(round(p.unrealized(mark), 2)),
+                "liquidation_price": str(round(p.liquidation_price(), 2)),
+                "stop_loss": str(p.stop_loss or ""), "take_profit": str(p.take_profit or ""),
+                "fees_paid": str(round(p.fees_paid, 4)),
+                "funding_paid": str(round(p.funding_paid, 4)),
+                "entry_reason": p.entry_reason, "strategy_id": p.strategy_id,
+            })
+        return {"data": out}
+    return {"data": [{"symbol": t.position.symbol, "side": t.position.side.value,
+                      "pnl": str(round(t.pnl, 2)), "exit_reason": t.exit_reason,
+                      "entry_reason": t.position.entry_reason,
+                      "closed_ts_ms": t.closed_ts_ms} for t in r.account.closed_trades]}
+
+
+@router.post("/positions/{symbol}/close")
+async def close_position(request: Request, symbol: str):
+    r = rt(request)
+    pos = r.account.positions.get(symbol)
+    if not pos:
+        raise HTTPException(404, "no open position")
+    order = Order(symbol=symbol, side=pos.side.opposite, type=OrderType.MARKET,
+                  qty=pos.qty, reduce_only=True, source="manual", reason="manual close")
+    result = r.place_order(order)
+    if not result["accepted"]:
+        raise HTTPException(422, detail={"reasons": result["reasons"]})
+    return {"data": result}
+
+
+@router.post("/positions/{symbol}/protect")
+async def protect_position(request: Request, symbol: str, body: ProtectRequest):
+    pos = rt(request).account.positions.get(symbol)
+    if not pos:
+        raise HTTPException(404, "no open position")
+    if body.stop_loss is not None:
+        pos.stop_loss = body.stop_loss
+    if body.take_profit is not None:
+        pos.take_profit = body.take_profit
+    return {"data": {"stop_loss": str(pos.stop_loss or ""),
+                     "take_profit": str(pos.take_profit or "")}}
+
+
+# ── strategies & signals ────────────────────────────────────────────
+
+@router.get("/strategies")
+async def strategies(request: Request):
+    return {"data": [{"id": s.id, "name": s.name, "enabled": s.enabled, "weight": s.weight,
+                      "is_filter": s.is_filter, "params": s.params}
+                     for s in rt(request).strategies]}
+
+
+@router.patch("/strategies/{strategy_id}")
+async def update_strategy(request: Request, strategy_id: str, body: dict):
+    for s in rt(request).strategies:
+        if s.id == strategy_id:
+            if "enabled" in body:
+                s.enabled = bool(body["enabled"])
+            if "weight" in body:
+                s.weight = float(body["weight"])
+            if "params" in body:
+                s.params.update(body["params"])
+            return {"data": {"id": s.id, "enabled": s.enabled, "weight": s.weight}}
+    raise HTTPException(404, "strategy not found")
+
+
+@router.get("/signals")
+async def signals(request: Request, limit: int = 50):
+    return {"data": rt(request).recent_signals[:limit]}
+
+
+@router.post("/backtests")
+async def run_backtest(request: Request, body: BacktestRequest):
+    from ..services.backtest.engine import run_backtest as _run
+    r = rt(request)
+    now = int(time.time() * 1000)
+    start = now - body.lookback_days * 86_400_000
+    candle_rows = await r.provider.backfill_candles(body.symbol, body.tf, start, now)
+    from ..services.strategy.base import Candle as SC
+    candles = [SC(ts_ms=c.ts_ms, open=c.open, high=c.high, low=c.low,
+                  close=c.close, volume=c.volume) for c in candle_rows]
+    if len(candles) < 130:
+        raise HTTPException(422, "not enough history for backtest")
+    account = _run(body.symbol, candles, r.ensemble)
+    report = metrics.performance(float(account.starting_balance), account.closed_trades)
+    return {"data": {"metrics": report.__dict__,
+                     "equity_curve": metrics.equity_curve(float(account.starting_balance),
+                                                          account.closed_trades),
+                     "histogram": metrics.pnl_histogram(account.closed_trades),
+                     "note": "candle-approximated fills; see docs/07 simulation honesty"}}
+
+
+# ── risk & kill switches ────────────────────────────────────────────
+
+@router.get("/risk/summary")
+async def risk_summary(request: Request):
+    r = rt(request)
+    L = r.risk_limits
+    ov = r.overview()
+    return {"data": {
+        "limits": {k: str(v) for k, v in L.__dict__.items()},
+        "usage": {"drawdown_pct": ov["drawdown_pct"], "day_pnl": ov["day_pnl"],
+                  "open_positions": ov["open_positions"], "exposure": ov["exposure"],
+                  "consecutive_losses": r.consecutive_losses},
+    }}
+
+
+@router.patch("/risk/limits")
+async def update_limits(request: Request, body: RiskLimitsUpdate):
+    L = rt(request).risk_limits
+    if not hasattr(L, body.key):
+        raise HTTPException(400, f"unknown limit '{body.key}'")
+    cur = getattr(L, body.key)
+    setattr(L, body.key, type(cur)(body.value) if not isinstance(cur, int) else int(body.value))
+    return {"data": {body.key: str(getattr(L, body.key))}}
+
+
+@router.get("/killswitch")
+async def killswitch_status(request: Request):
+    return {"data": [{"scope": s.scope, "state": s.state.value,
+                      "level": s.level.value if s.level else None, "reason": s.reason,
+                      "tripped_by": s.tripped_by} for s in rt(request).kill.status()]}
+
+
+@router.post("/killswitch/trip")
+async def killswitch_trip(request: Request, body: KillTrip):
+    sw = rt(request).kill.trip(body.scope, Level(body.level), body.reason, actor="ui")
+    return {"data": {"scope": sw.scope, "state": sw.state.value}}
+
+
+@router.post("/killswitch/acknowledge")
+async def killswitch_ack(request: Request, body: KillScope):
+    try:
+        sw = rt(request).kill.acknowledge(body.scope, actor="ui")
+    except Exception as e:
+        raise HTTPException(409, str(e))
+    return {"data": {"scope": sw.scope, "state": sw.state.value}}
+
+
+@router.post("/killswitch/rearm")
+async def killswitch_rearm(request: Request, body: KillScope):
+    try:
+        sw = rt(request).kill.rearm(body.scope, actor="ui")
+    except Exception as e:
+        raise HTTPException(409, str(e))
+    return {"data": {"scope": sw.scope, "state": sw.state.value}}
+
+
+# ── analytics ───────────────────────────────────────────────────────
+
+@router.get("/analytics/performance")
+async def performance(request: Request):
+    r = rt(request)
+    report = metrics.performance(float(r.account.starting_balance), r.account.closed_trades)
+    return {"data": report.__dict__}
+
+
+@router.get("/analytics/montecarlo")
+async def monte_carlo(request: Request, paths: int = 2000, horizon: int = 100):
+    r = rt(request)
+    pnls = [float(t.pnl) for t in r.account.closed_trades]
+    res = montecarlo.simulate(float(r._equity()), pnls, horizon=horizon, paths=paths)
+    return {"data": res.__dict__}
+
+
+@router.get("/analytics/journal")
+async def journal(request: Request, limit: int = 50):
+    r = rt(request)
+    return {"data": [{"symbol": t.position.symbol, "side": t.position.side.value,
+                      "entry_reason": t.position.entry_reason, "exit_reason": t.exit_reason,
+                      "pnl": str(round(t.pnl, 2)), "fees": str(round(t.position.fees_paid, 4)),
+                      "funding": str(round(t.position.funding_paid, 4)),
+                      "closed_ts_ms": t.closed_ts_ms} for t in r.account.closed_trades[-limit:]]}
+
+
+# ── integrations ────────────────────────────────────────────────────
+
+@router.get("/integrations/catalog")
+async def integrations_catalog():
+    return {"data": catalog()}
+
+
+@router.get("/integrations")
+async def list_integrations(request: Request):
+    r = rt(request)
+    return {"data": [{"kind": k, "configured": True} for k in r.integrations.keys()]}
+
+
+@router.post("/integrations/{integration_id}/test")
+async def test_integration(request: Request, integration_id: str):
+    inst = rt(request).integrations.get(integration_id)
+    if not inst:
+        raise HTTPException(404, "integration not configured")
+    res = await inst.test()
+    return {"data": {"ok": res.ok, "message": res.message}}
+
+
+# ── admin / settings ────────────────────────────────────────────────
+
+@router.get("/admin/health")
+async def admin_health(request: Request):
+    r = rt(request)
+    return {"data": {"mode": r.settings.vantage_mode, "symbols": r.symbols,
+                     "market": r.hub.health(),
+                     "kill_switches": len([s for s in r.kill.status()
+                                           if s.state.value != "armed"])}}
