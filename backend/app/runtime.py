@@ -23,6 +23,7 @@ from .services.auth import UserStore
 from .services.notifications import Alert, NotificationService
 from .services.market_data.factory import make_provider
 from .services.market_data.hub import MarketHub
+from .services.market_data.reconciler import CandleReconciler
 from .services.paper_engine.account import PaperAccount
 from .services.paper_engine.engine import PaperEngine
 from .services.paper_engine.models import ZERO, Fill, FillConfig, Order, OrderType
@@ -67,6 +68,7 @@ class Runtime:
         self.risk = RiskEngine(self.risk_limits)
         self.kill = KillSwitchRegistry(on_trip=self._on_kill_trip)
         self.slippage_monitor = SlippageMonitor()
+        self.reconciler = CandleReconciler(self.provider, settings.base_timeframe)
         self.strategies = [cls() for cls in ALL_STRATEGIES]
         self.ensemble = Ensemble(self.strategies)
         self.integrations: Dict[str, Integration] = {}
@@ -111,11 +113,14 @@ class Runtime:
         self.persistence.start()
         self.hub.start()
         self._monitor_task = asyncio.create_task(self._quality_monitor(), name="quality-monitor")
+        self._reconcile_task = asyncio.create_task(self._reconcile_loop(), name="candle-reconciler")
 
     async def stop(self) -> None:
         await self.hub.stop()
         if getattr(self, "_monitor_task", None):
             self._monitor_task.cancel()
+        if getattr(self, "_reconcile_task", None):
+            self._reconcile_task.cancel()
         await self.persistence.stop()
         await self.db.disconnect()
 
@@ -357,6 +362,21 @@ class Runtime:
             except Exception:
                 logger.exception("quality monitor tick failed")
             await asyncio.sleep(2.0)
+
+    async def _reconcile_loop(self) -> None:
+        """Every 5 minutes, detect and REST-backfill gaps in the streamed candle
+        history (WS reconnects can drop candles). Merges filled candles back into
+        the hub's in-memory series."""
+        while True:
+            await asyncio.sleep(300)
+            for sym in self.symbols:
+                try:
+                    stored = [c.ts_ms for c in self.hub.candles.get(sym, [])]
+                    filled = await self.reconciler.reconcile(sym, stored)
+                    for row in filled:
+                        self.hub.merge_candle(sym, row)
+                except Exception:
+                    logger.exception("candle reconcile failed for {}", sym)
 
     # ── valuation helpers ───────────────────────────────────────────
 

@@ -113,6 +113,20 @@ class MarketHub:
             if k.get("confirm") and self.on_candle_closed:
                 self.on_candle_closed(evt.symbol, candle)
 
+    def merge_candle(self, symbol: str, row) -> None:
+        """Insert a backfilled candle (from the reconciler) into the in-memory
+        series if it isn't already present, preserving ascending order."""
+        dq = self.candles.get(symbol)
+        if dq is None:
+            return
+        if any(c.ts_ms == row.ts_ms for c in dq):
+            return
+        candle = Candle(ts_ms=row.ts_ms, open=row.open, high=row.high, low=row.low,
+                        close=row.close, volume=row.volume)
+        merged = sorted([*dq, candle], key=lambda c: c.ts_ms)
+        dq.clear()
+        dq.extend(merged[-dq.maxlen:] if dq.maxlen else merged)
+
     # ── data quality ────────────────────────────────────────────────
 
     def data_age_s(self, symbol: str) -> float:
