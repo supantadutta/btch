@@ -79,9 +79,13 @@ class Runtime:
         # Autotrade is opt-in and OFF by default — signals are surfaced for
         # human review unless explicitly enabled (a human stays in the loop).
         self.autotrade_enabled = False
+        # Set True once a backtest of the active strategy set comes back positive
+        # (feeds the readiness score's "confirmed in backtest" check).
+        self._backtest_confirmed = False
 
         self.recent_signals: List[dict] = []
         self.recent_fills: List[dict] = []
+        self.recent_rejections: List[dict] = []
         self.day_pnl_anchor = self.account.starting_balance
         self.peak_equity = self.account.starting_balance
         self.consecutive_losses = 0
@@ -272,6 +276,13 @@ class Runtime:
         decision = self._risk_check(order, ref_price)
         if not decision.allowed:
             order.status = order.status.__class__.REJECTED
+            if not order.reduce_only:
+                self.recent_rejections.insert(0, {
+                    "ts_ms": int(time.time() * 1000), "symbol": order.symbol,
+                    "direction": "long" if order.side.value == "buy" else "short",
+                    "bot": strategy_id or order.source,
+                    "reason": "; ".join(decision.reasons)})
+                self.recent_rejections = self.recent_rejections[:100]
             return {"accepted": False, "reasons": decision.reasons}
 
         # 3) submit to executor
@@ -371,6 +382,40 @@ class Runtime:
         if a is None or not c[-1]:
             return None
         return a / c[-1] * 100
+
+    # ── money overview snapshot ─────────────────────────────────────
+
+    def money_overview(self) -> dict:
+        from .services.analytics import metrics as _metrics
+        from .services.analytics import money as _money
+        marks = self._marks()
+        perf = _metrics.performance(float(self.account.starting_balance),
+                                    self.account.closed_trades)
+        enabled = sum(1 for s in self.strategies if s.enabled and not s.is_filter)
+        health = self.hub.health()
+        diags = _money.diagnostics(
+            closed_trades=len(self.account.closed_trades),
+            open_trades=len(self.account.positions),
+            data_status=health["status"],
+            enabled_strategies=enabled,
+            total_strategies=sum(1 for s in self.strategies if not s.is_filter),
+            recent_signal_directions=[s["direction"] for s in self.recent_signals[:20]],
+            recent_rejections=len(self.recent_rejections),
+            persistence_enabled=self.persistence.enabled,
+        )
+        readiness = _money.readiness_score(
+            perf, has_backtest_confirm=self._backtest_confirmed,
+            slippage_realistic=self.fill_config.slippage_model != "touch")
+        return {
+            "summary": _money.account_summary(self.account, marks),
+            "ledger": _money.money_ledger(self.account, marks, self.recent_rejections),
+            "performance": perf.__dict__,
+            "attribution": _money.best_worst(self.account.closed_trades),
+            "readiness": {"status": readiness.status, "score": readiness.score,
+                          "summary": readiness.summary, "checklist": readiness.checklist},
+            "diagnostics": diags,
+            "data_status": health["status"],
+        }
 
     # ── dashboard snapshot ──────────────────────────────────────────
 

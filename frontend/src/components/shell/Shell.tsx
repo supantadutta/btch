@@ -7,6 +7,7 @@ import { MarketSocket, WsStatus } from "@/lib/ws";
 
 const NAV = [
   { href: "/", label: "Dashboard", key: "d" },
+  { href: "/money", label: "Money Overview", key: "m" },
   { href: "/terminal", label: "Market Terminal", key: "t" },
   { href: "/strategy", label: "Strategy Lab", key: "l" },
   { href: "/positions", label: "Positions & Orders", key: "p" },

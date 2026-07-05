@@ -75,6 +75,14 @@ async def overview(request: Request):
     return {"data": rt(request).overview()}
 
 
+@router.get("/analytics/money")
+async def money_overview(request: Request):
+    """Complete Money Overview: account summary, in/out ledger, performance,
+    real-money readiness score, and diagnostics explaining why money is (not)
+    moving. Always returns a diagnostic reason when there are no trades."""
+    return {"data": rt(request).money_overview()}
+
+
 @router.post("/orders")
 async def create_order(request: Request, body: OrderCreate):
     r = rt(request)
@@ -223,6 +231,9 @@ async def run_backtest(request: Request, body: BacktestRequest):
         raise HTTPException(422, "not enough history for backtest")
     account = _run(body.symbol, candles, r.ensemble)
     report = metrics.performance(float(account.starting_balance), account.closed_trades)
+    # Feed the readiness score: a profitable backtest confirms the strategy set.
+    if report.total_pnl > 0 and report.trades >= 10:
+        r._backtest_confirmed = True
     return {"data": {"metrics": report.__dict__,
                      "equity_curve": metrics.equity_curve(float(account.starting_balance),
                                                           account.closed_trades),
