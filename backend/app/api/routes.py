@@ -127,6 +127,10 @@ async def positions(request: Request, status: str = "open"):
                 "entry_reason": p.entry_reason, "strategy_id": p.strategy_id,
             })
         return {"data": out}
+    if r.persistence.enabled:
+        rows = await r.persistence.closed_trades(200)
+        if rows:
+            return {"data": rows}
     return {"data": [{"symbol": t.position.symbol, "side": t.position.side.value,
                       "pnl": str(round(t.pnl, 2)), "exit_reason": t.exit_reason,
                       "entry_reason": t.position.entry_reason,
@@ -294,11 +298,24 @@ async def monte_carlo(request: Request, paths: int = 2000, horizon: int = 100):
 @router.get("/analytics/journal")
 async def journal(request: Request, limit: int = 50):
     r = rt(request)
+    # Prefer durable DB history (survives restarts); fall back to in-memory.
+    if r.persistence.enabled:
+        rows = await r.persistence.closed_trades(limit)
+        if rows:
+            return {"data": rows}
     return {"data": [{"symbol": t.position.symbol, "side": t.position.side.value,
                       "entry_reason": t.position.entry_reason, "exit_reason": t.exit_reason,
                       "pnl": str(round(t.pnl, 2)), "fees": str(round(t.position.fees_paid, 4)),
                       "funding": str(round(t.position.funding_paid, 4)),
                       "closed_ts_ms": t.closed_ts_ms} for t in r.account.closed_trades[-limit:]]}
+
+
+@router.get("/analytics/equity-curve")
+async def equity_curve(request: Request, limit: int = 500):
+    """Persisted equity snapshots (per-fill + per-minute). Empty until the
+    account has traded and persistence is enabled."""
+    r = rt(request)
+    return {"data": await r.persistence.equity_curve(limit)}
 
 
 # ── integrations ────────────────────────────────────────────────────

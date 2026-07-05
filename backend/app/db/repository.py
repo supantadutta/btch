@@ -115,3 +115,33 @@ async def latest_balance(session: AsyncSession, account_id: str,
         select(m.EquitySnapshot.balance).where(m.EquitySnapshot.account_id == account_id)
         .order_by(m.EquitySnapshot.ts.desc()).limit(1))).scalar_one_or_none()
     return Decimal(str(row)) if row is not None else default
+
+
+async def load_closed_trades(session: AsyncSession, account_id: str,
+                             limit: int = 100) -> List[dict]:
+    """Closed positions across restarts — the durable trade journal."""
+    rows = (await session.execute(
+        select(m.PositionRow).where(
+            m.PositionRow.account_id == account_id, m.PositionRow.status == "closed")
+        .order_by(m.PositionRow.closed_at.desc()).limit(limit))).scalars()
+    out: List[dict] = []
+    for r in rows:
+        net = Decimal(str(r.realized_pnl)) - Decimal(str(r.fees_paid)) - Decimal(str(r.funding_paid))
+        out.append({
+            "symbol": r.symbol, "side": r.side, "pnl": str(round(net, 2)),
+            "fees": str(round(Decimal(str(r.fees_paid)), 4)),
+            "funding": str(round(Decimal(str(r.funding_paid)), 4)),
+            "entry_reason": r.entry_reason, "exit_reason": r.exit_reason,
+            "closed_ts_ms": int(r.closed_at.timestamp() * 1000) if r.closed_at else 0,
+        })
+    return out
+
+
+async def load_equity_curve(session: AsyncSession, account_id: str,
+                            limit: int = 500) -> List[dict]:
+    rows = (await session.execute(
+        select(m.EquitySnapshot).where(m.EquitySnapshot.account_id == account_id)
+        .order_by(m.EquitySnapshot.ts.desc()).limit(limit))).scalars().all()
+    return [{"ts_ms": int(r.ts.timestamp() * 1000), "equity": str(round(Decimal(str(r.equity)), 2)),
+             "unrealized": str(round(Decimal(str(r.unrealized)), 2))}
+            for r in reversed(rows)]

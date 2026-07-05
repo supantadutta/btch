@@ -2,11 +2,12 @@
 import { Card, EmptyState, KpiStat } from "@/components/ui/primitives";
 import { usePoll } from "@/lib/hooks";
 import { fmtUsd, signClass } from "@/lib/format";
-import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, Cell } from "recharts";
+import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 
 export default function Analytics() {
   const { data: perf } = usePoll<any>("/analytics/performance", 5000);
   const { data: journal } = usePoll<any[]>("/analytics/journal?limit=50", 5000);
+  const { data: curve } = usePoll<any[]>("/analytics/equity-curve?limit=300", 8000);
 
   return (
     <div className="space-y-4">
@@ -22,6 +23,29 @@ export default function Analytics() {
         <KpiStat label="Max Drawdown" value={perf ? `${perf.max_drawdown_pct.toFixed(1)}%` : "—"}
           deltaClass="text-down" />
       </div>
+
+      <Card title="Cumulative Equity Curve (persisted — survives restarts)">
+        {curve && curve.length > 1 ? (
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={curve.map((p, i) => ({ i, equity: Number(p.equity) }))}>
+              <defs>
+                <linearGradient id="eq" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#2EBD85" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#2EBD85" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="i" tick={{ fill: "#5A6270", fontSize: 11 }} stroke="#232A33" />
+              <YAxis tick={{ fill: "#5A6270", fontSize: 11 }} stroke="#232A33" width={56}
+                tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`} domain={["auto", "auto"]} />
+              <Tooltip contentStyle={{ background: "#12161C", border: "1px solid #232A33", borderRadius: 8, fontSize: 12 }} />
+              <Area dataKey="equity" stroke="#2EBD85" strokeWidth={1.5} fill="url(#eq)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <EmptyState title="No equity history yet"
+            hint="Equity is snapshotted on every fill and persisted to Postgres; this curve fills in as you trade." />
+        )}
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <Card title="Cost Attribution (net of everything)" className="lg:col-span-1">

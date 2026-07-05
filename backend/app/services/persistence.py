@@ -60,6 +60,20 @@ class Persistence:
             logger.info("recovered {} open position(s) from DB", len(positions))
         return len(positions)
 
+    # ── reads (durable history across restarts) ─────────────────────
+
+    async def closed_trades(self, limit: int = 100) -> list:
+        if not self.enabled:
+            return []
+        async with self.db.sessionmaker() as session:  # type: ignore[union-attr]
+            return await repo.load_closed_trades(session, self.account_id, limit)
+
+    async def equity_curve(self, limit: int = 500) -> list:
+        if not self.enabled:
+            return []
+        async with self.db.sessionmaker() as session:  # type: ignore[union-attr]
+            return await repo.load_equity_curve(session, self.account_id, limit)
+
     # ── enqueue (called from sync engine hooks) ─────────────────────
 
     def _enqueue(self, fn, *args) -> None:

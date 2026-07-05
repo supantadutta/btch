@@ -30,7 +30,7 @@
 ### Phase 4 — Risk, kill switches, integrations (weeks 8–10)
 - [x] Risk engine pre-trade checks + limits model ← this commit
 - [x] Kill-switch state machine (soft/hard, scoped, ack/re-arm) ← this commit
-- [ ] Automatic trigger wiring (loss thresholds, staleness, slippage anomaly, vol spike)
+- [x] Automatic trigger wiring: loss thresholds, drawdown, staleness, slippage anomaly, vol/funding spike ← triggers commit
 - [ ] Risk Center UI, kill-switch banner + re-arm flow
 - [ ] Integrations Hub UI + Telegram/Discord/webhook/TradingView connectors live
 - [ ] Alert center + toasts + notification routing

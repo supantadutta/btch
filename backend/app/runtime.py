@@ -24,10 +24,12 @@ from .services.paper_engine.account import PaperAccount
 from .services.paper_engine.engine import PaperEngine
 from .services.paper_engine.models import ZERO, Fill, FillConfig, Order, OrderType
 from .services.persistence import Persistence
+from .services.risk.detectors import SlippageMonitor, funding_spike, volatility_spike
 from .services.risk.killswitch import AUTO_TRIGGERS, KillSwitchRegistry, Level
 from .services.risk.limits import (
     AccountRiskState, MarketRiskState, OrderIntent, RiskDecision, RiskEngine, RiskLimits,
 )
+from .services.strategy import indicators as ta
 from .services.strategy.base import Candle, Direction, MarketState
 from .services.strategy.ensemble import Ensemble
 from .services.strategy.strategies import ALL_STRATEGIES
@@ -61,6 +63,7 @@ class Runtime:
         self.risk_limits = RiskLimits(max_leverage=settings.paper_max_leverage)
         self.risk = RiskEngine(self.risk_limits)
         self.kill = KillSwitchRegistry(on_trip=self._on_kill_trip)
+        self.slippage_monitor = SlippageMonitor()
         self.strategies = [cls() for cls in ALL_STRATEGIES]
         self.ensemble = Ensemble(self.strategies)
         self.integrations: Dict[str, Integration] = {}
@@ -175,6 +178,12 @@ class Runtime:
         self.recent_fills.insert(0, rec)
         self.recent_fills = self.recent_fills[:100]
 
+        # Automatic kill-switch trigger: abnormal execution slippage.
+        anomaly = self.slippage_monitor.observe(fill.slippage_bps)
+        if anomaly:
+            self.kill.trip(f"symbol:{fill.symbol}", AUTO_TRIGGERS["abnormal_slippage"],
+                           anomaly, actor="slippage_monitor")
+
         # Mirror to DB (no-op if persistence disabled).
         self.persistence.record_fill(fill)
         while self._persisted_closed < len(self.account.closed_trades):
@@ -274,6 +283,19 @@ class Runtime:
                     if age > self.settings.staleness_kill_s:
                         self.kill.trip(f"symbol:{sym}", AUTO_TRIGGERS["stale_market_data"],
                                        f"data stale {age:.0f}s", actor="quality_monitor")
+                    # Volatility spike from real candles (ATR as % of price).
+                    atr_pct = self._atr_pct(sym)
+                    if atr_pct is not None:
+                        vol = volatility_spike(atr_pct, float(self.risk_limits.max_atr_pct) * 1.5)
+                        if vol:
+                            self.kill.trip(f"symbol:{sym}", AUTO_TRIGGERS["volatility_spike"],
+                                           vol, actor="quality_monitor")
+                    # Funding spike from the real ticker rate.
+                    fr = float(self.hub.tickers.get(sym, {}).get("fundingRate", 0) or 0)
+                    fund = funding_spike(fr, float(self.risk_limits.funding_abs_limit) * 3)
+                    if fund:
+                        self.kill.trip(f"symbol:{sym}", AUTO_TRIGGERS["funding_spike"],
+                                       fund, actor="quality_monitor")
                 eq = self._equity()
                 dd = (self.peak_equity - eq) / self.peak_equity * 100 if self.peak_equity else 0
                 if dd >= float(self.risk_limits.max_drawdown_pct):
@@ -303,6 +325,18 @@ class Runtime:
     def _spread_bps(self, symbol: str) -> float:
         b = self.hub.books.get(symbol)
         return float(b.spread_bps) if b else 0.0
+
+    def _atr_pct(self, symbol: str) -> Optional[float]:
+        candles = list(self.hub.candles.get(symbol, []))
+        if len(candles) < 20:
+            return None
+        h = [c.high for c in candles]
+        low = [c.low for c in candles]
+        c = [c.close for c in candles]
+        a = ta.atr(h, low, c, 14)[-1]
+        if a is None or not c[-1]:
+            return None
+        return a / c[-1] * 100
 
     # ── dashboard snapshot ──────────────────────────────────────────
 
