@@ -6,7 +6,8 @@
 - [x] Monorepo scaffold (backend, frontend, compose, docs) ← this commit
 - [x] Config, logging, DB models, event bus, provider abstractions ← this commit
 - [x] Bybit public REST backfill + WS streaming client with reconnect/staleness ← this commit
-- [ ] Alembic migrations + candle gap reconciler job
+- [x] Alembic migrations (baseline schema, upgrade/downgrade verified) ← migrations commit
+- [ ] Candle gap reconciler job
 - [ ] Auth (register/login/JWT/roles) + audit middleware
 - [x] Dark shell UI: nav, sidebar, theme, Dashboard + Terminal pages ← this commit
 - [ ] Live candle chart wired to `/ws` streams; order book + trades panels live
