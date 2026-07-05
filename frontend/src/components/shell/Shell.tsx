@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { MarketSocket, WsStatus } from "@/lib/ws";
 import { CommandPalette } from "@/components/CommandPalette";
+import { Onboarding } from "@/components/Onboarding";
 
 const NAV = [
   { href: "/", label: "Dashboard", key: "d" },
@@ -60,6 +61,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </header>
       <CommandPalette />
+      <Onboarding />
 
       <div className="flex flex-1">
         {/* Sidebar */}
