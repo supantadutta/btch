@@ -314,8 +314,9 @@ class Runtime:
                 for sym in self.symbols:
                     age = self.hub.data_age_s(sym)
                     if age > self.settings.staleness_kill_s:
+                        age_txt = "no data yet" if age > 1e6 else f"data stale {age:.0f}s"
                         self.kill.trip(f"symbol:{sym}", AUTO_TRIGGERS["stale_market_data"],
-                                       f"data stale {age:.0f}s", actor="quality_monitor")
+                                       age_txt, actor="quality_monitor")
                     # Volatility spike from real candles (ATR as % of price).
                     atr_pct = self._atr_pct(sym)
                     if atr_pct is not None:

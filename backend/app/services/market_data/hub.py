@@ -122,8 +122,14 @@ class MarketHub:
         return max(0.0, time.time() - ms / 1000)
 
     def health(self) -> dict:
-        ages = {s: round(self.data_age_s(s), 2) for s in self.symbols}
-        worst = max(ages.values()) if ages else float("inf")
+        # Cap infinities (no data yet) to a finite sentinel so the payload stays
+        # JSON-serializable; a symbol that has never ticked reads as fully stale.
+        def age(s: str) -> float:
+            a = self.data_age_s(s)
+            return round(min(a, 999999.0), 2)
+
+        ages = {s: age(s) for s in self.symbols}
+        worst = max(ages.values()) if ages else 999999.0
         status = ("ok" if worst < self.staleness_warn_s
                   else "degraded" if worst < self.staleness_block_s else "stale")
         return {"status": status, "age_s": ages,

@@ -17,7 +17,7 @@ interface Overview {
 interface MC { p5: number[]; p50: number[]; p95: number[]; prob_negative: number; prob_drawdown_20pct: number; }
 
 export default function Dashboard() {
-  const { data, loading } = usePoll<Overview>("/analytics/overview", 3000);
+  const { data } = usePoll<Overview>("/analytics/overview", 3000);
   const { data: mc } = usePoll<MC>("/analytics/montecarlo?paths=1500&horizon=60", 15000);
 
   const tripped = data?.kill_switches?.filter((k) => k.state !== "armed") ?? [];
@@ -41,7 +41,7 @@ export default function Dashboard() {
 
       {/* Top KPI row */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        {loading && !data ? (
+        {!data ? (
           Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24" />)
         ) : (
           <>
