@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     jwt_refresh_ttl_days: int = 14
     secret_encryption_key: str = ""
 
+    market_provider: str = "bybit"      # bybit | binance
     bybit_rest_url: str = "https://api.bybit.com"
     bybit_ws_public_url: str = "wss://stream.bybit.com/v5/public/linear"
     symbols: str = "BTCUSDT,ETHUSDT"

@@ -85,6 +85,11 @@ async def create_order(request: Request, body: OrderCreate):
         leverage=body.leverage, source="manual", reason=body.reason,
     )
     result = r.place_order(order)
+    r.audit.record("ui", "order.create" if result["accepted"] else "order.rejected",
+                   "order", order.id,
+                   after={"symbol": body.symbol, "side": body.side, "type": body.type,
+                          "qty": str(body.qty), "accepted": result["accepted"],
+                          "reasons": result.get("reasons")})
     if not result["accepted"]:
         raise HTTPException(status_code=422, detail={"code": "risk_rejected",
                                                      "reasons": result["reasons"]})
@@ -197,7 +202,10 @@ async def set_autotrade(request: Request, body: dict):
     """Toggle gated auto-execution of ensemble signals. Default OFF; autotraded
     orders still pass the full risk + kill-switch gate."""
     r = rt(request)
+    before = r.autotrade_enabled
     r.autotrade_enabled = bool(body.get("enabled", False))
+    r.audit.record("ui", "autotrade.toggle", "runtime", None,
+                   before={"enabled": before}, after={"enabled": r.autotrade_enabled})
     return {"data": {"autotrade_enabled": r.autotrade_enabled}}
 
 
@@ -243,7 +251,10 @@ async def update_limits(request: Request, body: RiskLimitsUpdate):
     if not hasattr(L, body.key):
         raise HTTPException(400, f"unknown limit '{body.key}'")
     cur = getattr(L, body.key)
+    before = str(cur)
     setattr(L, body.key, type(cur)(body.value) if not isinstance(cur, int) else int(body.value))
+    rt(request).audit.record("ui", "risk.limit.update", "risk_limit", body.key,
+                             before={body.key: before}, after={body.key: str(getattr(L, body.key))})
     return {"data": {body.key: str(getattr(L, body.key))}}
 
 
@@ -256,25 +267,32 @@ async def killswitch_status(request: Request):
 
 @router.post("/killswitch/trip")
 async def killswitch_trip(request: Request, body: KillTrip):
-    sw = rt(request).kill.trip(body.scope, Level(body.level), body.reason, actor="ui")
+    r = rt(request)
+    sw = r.kill.trip(body.scope, Level(body.level), body.reason, actor="ui")
+    r.audit.record("ui", "killswitch.trip", "killswitch", body.scope,
+                   after={"level": body.level, "reason": body.reason})
     return {"data": {"scope": sw.scope, "state": sw.state.value}}
 
 
 @router.post("/killswitch/acknowledge")
 async def killswitch_ack(request: Request, body: KillScope):
+    r = rt(request)
     try:
-        sw = rt(request).kill.acknowledge(body.scope, actor="ui")
+        sw = r.kill.acknowledge(body.scope, actor="ui")
     except Exception as e:
         raise HTTPException(409, str(e))
+    r.audit.record("ui", "killswitch.acknowledge", "killswitch", body.scope)
     return {"data": {"scope": sw.scope, "state": sw.state.value}}
 
 
 @router.post("/killswitch/rearm")
 async def killswitch_rearm(request: Request, body: KillScope):
+    r = rt(request)
     try:
-        sw = rt(request).kill.rearm(body.scope, actor="ui")
+        sw = r.kill.rearm(body.scope, actor="ui")
     except Exception as e:
         raise HTTPException(409, str(e))
+    r.audit.record("ui", "killswitch.rearm", "killswitch", body.scope)
     return {"data": {"scope": sw.scope, "state": sw.state.value}}
 
 
@@ -342,6 +360,10 @@ async def create_integration(request: Request, body: IntegrationCreate):
         inst = r.add_integration(body.kind, body.name, body.config, body.secrets)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    # NOTE: only non-secret config + masked secret keys are audited — never raw secrets.
+    r.audit.record("ui", "integration.create", "integration", body.kind,
+                   after={"kind": body.kind, "name": body.name,
+                          "secret_keys": list(body.secrets.keys())})
     return {"data": {"kind": inst.kind, "enabled": True,
                      "secrets": type(inst).masked(inst.secrets)}}
 
@@ -371,6 +393,13 @@ async def ack_alert(request: Request, alert_id: str):
 
 
 # ── admin / settings ────────────────────────────────────────────────
+
+@router.get("/admin/audit")
+async def admin_audit(request: Request, limit: int = 100):
+    """Audit trail of state-changing actions (order/kill-switch/risk/integration/
+    autotrade). In-memory ring; also persisted to audit_log when the DB is up."""
+    return {"data": rt(request).audit.feed(limit)}
+
 
 @router.get("/admin/health")
 async def admin_health(request: Request):

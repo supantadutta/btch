@@ -38,7 +38,9 @@
 
 ### Phase 5 — Exchange demo & hardening (weeks 10–12)
 - [ ] Bybit Demo Trading execution provider behind `ExecutionProvider`
-- [ ] Binance Futures Testnet market-data + execution providers
+- [x] Binance Futures Testnet market-data provider behind `MarketDataProvider` + provider factory ← binance commit
+- [x] Audit log wired to state-changing endpoints (+ /admin/audit) ← audit commit
+- [x] API rate limiting (sliding-window middleware) ← ratelimit commit
 - [ ] Settings/Admin: mode switch, fill-sim settings UI, audit viewer, env checks
 - [x] Prometheus /metrics endpoint (data staleness, reconnects, equity, kill switches, alerts) ← metrics commit
 - [ ] Rate limiting, secret rotation, load/QA pass

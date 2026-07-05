@@ -12,6 +12,7 @@ from .api.metrics import metrics_router
 from .api.routes import router
 from .api.ws import hub, ws_router
 from .core.config import get_settings
+from .core.ratelimit import RateLimiter, RateLimitMiddleware
 from .runtime import Runtime
 
 
@@ -30,6 +31,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Vantage API", version="0.1.0", lifespan=lifespan)
+
+app.add_middleware(RateLimitMiddleware, limiter=RateLimiter(limit=120, window_s=60.0))
 
 app.add_middleware(
     CORSMiddleware,

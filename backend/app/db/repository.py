@@ -49,6 +49,12 @@ async def save_order(session: AsyncSession, account_id: str, order: Order) -> No
         row.updated_at = now
 
 
+async def save_audit(session: AsyncSession, entry) -> None:
+    session.add(m.AuditLog(
+        at=_utc(entry.at_ms), user_id=None, action=entry.action, entity=entry.entity,
+        entity_id=entry.entity_id, before=entry.before, after=entry.after))
+
+
 async def save_fill(session: AsyncSession, fill) -> None:
     session.add(m.FillRow(
         id=fill.id, order_id=fill.order_id, ts=_utc(fill.ts_ms), qty=fill.qty,

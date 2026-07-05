@@ -92,6 +92,9 @@ class Persistence:
     def record_order(self, order) -> None:
         self._enqueue(repo.save_order, self.account_id, order)
 
+    def record_audit(self, entry) -> None:
+        self._enqueue(repo.save_audit, entry)
+
     def record_fill(self, fill) -> None:
         self._enqueue(repo.save_fill, fill)
 

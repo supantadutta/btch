@@ -18,8 +18,9 @@ from .core.config import Settings
 from .db.session import Database
 from .services.autotrade import plan_autotrade
 from .services.integrations.registry import REGISTRY, Integration
+from .services.audit import AuditService
 from .services.notifications import Alert, NotificationService
-from .services.market_data.bybit import BybitProvider
+from .services.market_data.factory import make_provider
 from .services.market_data.hub import MarketHub
 from .services.paper_engine.account import PaperAccount
 from .services.paper_engine.engine import PaperEngine
@@ -44,7 +45,7 @@ class Runtime:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.symbols = settings.symbol_list
-        self.provider = BybitProvider(settings.bybit_rest_url, settings.bybit_ws_public_url)
+        self.provider = make_provider(settings.market_provider, settings)
         self.hub = MarketHub(
             self.provider, self.symbols,
             staleness_warn_s=settings.staleness_warn_s,
@@ -73,6 +74,7 @@ class Runtime:
         self.db = Database(settings.database_url)
         self.persistence = Persistence(self.db, DEFAULT_ACCOUNT_ID, DEFAULT_USER_ID,
                                        settings.vantage_mode)
+        self.audit = AuditService(sink=self.persistence.record_audit)
 
         # Autotrade is opt-in and OFF by default — signals are surfaced for
         # human review unless explicitly enabled (a human stays in the loop).
