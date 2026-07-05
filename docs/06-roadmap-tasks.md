@@ -25,7 +25,8 @@
 - [x] Indicator library (EMA, RSI, ATR, ADX, VWAP, Bollinger, MACD) ← this commit
 - [x] Strategy base + 6 V1 strategies + ensemble voting ← this commit
 - [x] Signal → risk → order auto-execution pipeline (gated, default-OFF autotrade) ← autotrade commit
-- [ ] Backtester sharing the paper fill models; Strategy Lab UI (compare, tune, explain)
+- [x] Backtester sharing the paper fill models; Strategy Lab UI (backtest, explain) ← scaffold + strategy commits
+- [x] Walk-forward evaluation (sequential out-of-sample folds) + Strategy Lab panel; feeds readiness score ← walk-forward commit
 - [ ] Performance Analytics page: attribution, distributions, journal, paper-vs-backtest
 
 ### Phase 4 — Risk, kill switches, integrations (weeks 8–10)

@@ -10,6 +10,8 @@ export default function StrategyLab() {
   const { data: signals } = usePoll<any[]>("/signals?limit=20", 3000);
   const [bt, setBt] = useState<any>(null);
   const [running, setRunning] = useState(false);
+  const [wf, setWf] = useState<any>(null);
+  const [wfRunning, setWfRunning] = useState(false);
 
   const toggle = async (id: string, enabled: boolean) => {
     try { await patch(`/strategies/${id}`, { enabled }); reload(); } catch {}
@@ -20,6 +22,13 @@ export default function StrategyLab() {
     try { setBt(await post("/backtests", { symbol: "BTCUSDT", tf: "15m", lookback_days: 30 })); }
     catch (e: any) { setBt({ error: e.message }); }
     finally { setRunning(false); }
+  };
+
+  const runWalkForward = async () => {
+    setWfRunning(true);
+    try { setWf(await post("/backtests/walk-forward", { symbol: "BTCUSDT", tf: "15m", lookback_days: 90 })); }
+    catch (e: any) { setWf({ error: e.message }); }
+    finally { setWfRunning(false); }
   };
 
   return (
@@ -72,6 +81,43 @@ export default function StrategyLab() {
           ) : <EmptyState title="No backtest run yet" hint="Backtests reuse the exact paper fill simulator — results are honest, not idealized." />}
         </Card>
       </div>
+
+      <Card title="Walk-Forward — out-of-sample folds (shares live fill models)" actions={
+        <button onClick={runWalkForward} disabled={wfRunning}
+          className="px-3 py-1 rounded bg-accent/15 text-accent border border-accent/40 text-[12px]">
+          {wfRunning ? "Running…" : "Run 90d BTC 15m · 5 folds"}
+        </button>
+      }>
+        {wf?.error ? (
+          <EmptyState title="Walk-forward unavailable" hint={wf.error} />
+        ) : wf?.folds ? (
+          <div>
+            <div className="flex items-center gap-3 mb-3 text-[13px]">
+              <Badge tone={wf.consistent ? "up" : "down"}>
+                {wf.consistent ? "CONSISTENT" : "INCONSISTENT"}
+              </Badge>
+              <span className="text-text-dim">OOS PnL <span className={`tabular ${signClass(wf.oos_total_pnl)}`}>{fmtUsd(wf.oos_total_pnl)}</span></span>
+              <span className="text-text-dim">avg win rate <span className="tabular text-text">{wf.oos_avg_win_rate}%</span></span>
+              <span className="text-text-dim">positive folds <span className="tabular text-text">{Math.round(wf.positive_fold_fraction * 100)}%</span></span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+              {wf.folds.map((f: any) => (
+                <div key={f.index} className={`border rounded-md p-2 text-[11px] tabular ${
+                  f.net_pnl > 0 ? "border-up/30 bg-up/5" : f.net_pnl < 0 ? "border-down/30 bg-down/5" : "border-border"}`}>
+                  <div className="text-text-faint">Fold {f.index + 1}</div>
+                  <div className={signClass(f.net_pnl)}>{fmtUsd(f.net_pnl)}</div>
+                  <div className="text-text-dim">{f.trades} trades · {f.win_rate}% WR</div>
+                  <div className="text-text-faint">DD {f.max_drawdown_pct}%</div>
+                </div>
+              ))}
+            </div>
+            <div className="text-[10px] text-text-faint mt-2">{wf.note}</div>
+          </div>
+        ) : (
+          <EmptyState title="No walk-forward run yet"
+            hint="Splits history into sequential out-of-sample folds; each fold trades a period the prior fold didn't — a stability test across market regimes." />
+        )}
+      </Card>
 
       <Card title="Live Signal Feed — why each signal fired">
         {signals && signals.length ? (

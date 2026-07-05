@@ -82,6 +82,8 @@ class Runtime:
         # Set True once a backtest of the active strategy set comes back positive
         # (feeds the readiness score's "confirmed in backtest" check).
         self._backtest_confirmed = False
+        # Set True once walk-forward evaluation is consistent across folds.
+        self._walkforward_confirmed = False
 
         self.recent_signals: List[dict] = []
         self.recent_fills: List[dict] = []
@@ -405,7 +407,8 @@ class Runtime:
         )
         readiness = _money.readiness_score(
             perf, has_backtest_confirm=self._backtest_confirmed,
-            slippage_realistic=self.fill_config.slippage_model != "touch")
+            slippage_realistic=self.fill_config.slippage_model != "touch",
+            walk_forward_confirm=self._walkforward_confirmed)
         return {
             "summary": _money.account_summary(self.account, marks),
             "ledger": _money.money_ledger(self.account, marks, self.recent_rejections),

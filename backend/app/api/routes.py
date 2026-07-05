@@ -241,6 +241,32 @@ async def run_backtest(request: Request, body: BacktestRequest):
                      "note": "candle-approximated fills; see docs/07 simulation honesty"}}
 
 
+@router.post("/backtests/walk-forward")
+async def run_walk_forward(request: Request, body: BacktestRequest):
+    """Sequential out-of-sample walk-forward on the active strategy set — reuses
+    the paper fill/fee/funding models per fold. Sets the readiness 'walk-forward
+    confirmed' check when folds are consistently profitable."""
+    from ..services.backtest.walkforward import walk_forward
+    from ..services.strategy.base import Candle as SC
+    r = rt(request)
+    now = int(time.time() * 1000)
+    start = now - body.lookback_days * 86_400_000
+    rows = await r.provider.backfill_candles(body.symbol, body.tf, start, now)
+    candles = [SC(ts_ms=c.ts_ms, open=c.open, high=c.high, low=c.low,
+                  close=c.close, volume=c.volume) for c in rows]
+    try:
+        report = walk_forward(body.symbol, candles, r.ensemble)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if report.consistent:
+        r._walkforward_confirmed = True
+    return {"data": {"folds": [f.__dict__ for f in report.folds],
+                     "oos_total_pnl": report.oos_total_pnl,
+                     "oos_avg_win_rate": report.oos_avg_win_rate,
+                     "positive_fold_fraction": report.positive_fold_fraction,
+                     "consistent": report.consistent, "note": report.note}}
+
+
 # ── risk & kill switches ────────────────────────────────────────────
 
 @router.get("/risk/summary")
