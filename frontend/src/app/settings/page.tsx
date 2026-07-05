@@ -4,6 +4,7 @@ import { usePoll } from "@/lib/hooks";
 
 export default function Settings() {
   const { data: health } = usePoll<any>("/admin/health", 5000);
+  const { data: exec } = usePoll<any>("/admin/execution", 8000);
 
   return (
     <div className="space-y-4">
@@ -48,6 +49,20 @@ export default function Settings() {
           </div>
         </Card>
       </div>
+
+      <Card title="Execution Seam">
+        {exec ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[12px]">
+            <Row label="Active provider" value={exec.active_provider} />
+            <Row label="Live capable" value={exec.live_capable ? "yes" : "no (disabled)"} />
+            <Row label="Bybit demo keys" value={exec.demo_keys_present?.bybit ? "present" : "—"} />
+            <Row label="Binance testnet keys" value={exec.demo_keys_present?.binance_testnet ? "present" : "—"} />
+            <div className="col-span-2 md:col-span-4 text-[11px] text-text-faint">
+              paper → exchange-demo → live is a provider swap at one seam; live is absent from this build.
+            </div>
+          </div>
+        ) : <EmptyState title="Loading execution status…" />}
+      </Card>
 
       <Card title="Environment Health">
         {health ? (

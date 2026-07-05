@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { MarketSocket, WsStatus } from "@/lib/ws";
+import { CommandPalette } from "@/components/CommandPalette";
 
 const NAV = [
   { href: "/", label: "Dashboard", key: "d" },
@@ -52,9 +53,13 @@ export function Shell({ children }: { children: ReactNode }) {
             <span className={clsx("w-2 h-2 rounded-full", statusMeta[status].tone)} />
             {statusMeta[status].label}
           </div>
+          <kbd className="hidden md:inline text-[11px] text-text-faint border border-border rounded px-1.5 py-0.5">
+            ⌘K
+          </kbd>
           <span className="text-text-faint">BTC · ETH perpetuals</span>
         </div>
       </header>
+      <CommandPalette />
 
       <div className="flex flex-1">
         {/* Sidebar */}
