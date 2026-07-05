@@ -188,6 +188,15 @@ async def signals(request: Request, limit: int = 50):
     return {"data": rt(request).recent_signals[:limit]}
 
 
+@router.post("/autotrade")
+async def set_autotrade(request: Request, body: dict):
+    """Toggle gated auto-execution of ensemble signals. Default OFF; autotraded
+    orders still pass the full risk + kill-switch gate."""
+    r = rt(request)
+    r.autotrade_enabled = bool(body.get("enabled", False))
+    return {"data": {"autotrade_enabled": r.autotrade_enabled}}
+
+
 @router.post("/backtests")
 async def run_backtest(request: Request, body: BacktestRequest):
     from ..services.backtest.engine import run_backtest as _run

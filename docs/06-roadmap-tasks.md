@@ -16,14 +16,14 @@
 - [x] Order lifecycle, fill simulator (spread/slippage/latency/partial), fees ← this commit
 - [x] Position accounting: avg entry, realized/unrealized, isolated margin, liq price ← this commit
 - [x] Funding accrual against real funding rates ← this commit
-- [ ] Persistence wiring (engine ↔ Postgres transactional), crash recovery
-- [ ] Positions & Orders page fully live; manual ticket on Terminal
-- [ ] Equity snapshotting + Dashboard KPIs from real account state
+- [x] Persistence wiring (engine ↔ Postgres, write-behind), crash recovery of open positions ← persistence commit
+- [x] Equity snapshotting on every fill ← persistence commit
+- [ ] Positions & Orders page reads persisted closed trades across restarts (currently in-memory feed)
 
 ### Phase 3 — Strategy & analytics (weeks 5–8)
 - [x] Indicator library (EMA, RSI, ATR, ADX, VWAP, Bollinger, MACD) ← this commit
 - [x] Strategy base + 6 V1 strategies + ensemble voting ← this commit
-- [ ] Signal persistence, signal → risk → order pipeline live
+- [x] Signal → risk → order auto-execution pipeline (gated, default-OFF autotrade) ← autotrade commit
 - [ ] Backtester sharing the paper fill models; Strategy Lab UI (compare, tune, explain)
 - [ ] Performance Analytics page: attribution, distributions, journal, paper-vs-backtest
 

@@ -1,31 +1,40 @@
 """Application runtime: the live, in-process wiring of all engines around the
 real market-data stream. Instantiated once at startup and shared by the API
-and WebSocket layers. In-memory account state for V1 (DB persistence is the
-Phase-2 wiring task); all market data is authentic Bybit data.
+and WebSocket layers. State lives in-memory for hot-path speed and is mirrored
+to Postgres via write-behind persistence; open positions are recovered from the
+DB on boot. All market data is authentic Bybit data.
 """
 from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from decimal import Decimal
 from typing import Callable, Dict, List, Optional
 
 from loguru import logger
 
 from .core.config import Settings
+from .db.session import Database
+from .services.autotrade import plan_autotrade
 from .services.integrations.registry import REGISTRY, Integration
 from .services.market_data.bybit import BybitProvider
 from .services.market_data.hub import MarketHub
 from .services.paper_engine.account import PaperAccount
 from .services.paper_engine.engine import PaperEngine
-from .services.paper_engine.models import ZERO, Fill, FillConfig, Order
+from .services.paper_engine.models import ZERO, Fill, FillConfig, Order, OrderType
+from .services.persistence import Persistence
 from .services.risk.killswitch import AUTO_TRIGGERS, KillSwitchRegistry, Level
 from .services.risk.limits import (
     AccountRiskState, MarketRiskState, OrderIntent, RiskDecision, RiskEngine, RiskLimits,
 )
-from .services.strategy.base import Candle, MarketState
+from .services.strategy.base import Candle, Direction, MarketState
 from .services.strategy.ensemble import Ensemble
 from .services.strategy.strategies import ALL_STRATEGIES
+
+# Deterministic account id so recovery finds the same paper account each boot.
+DEFAULT_ACCOUNT_ID = "00000000-0000-0000-0000-0000000000a1"
+DEFAULT_USER_ID = "00000000-0000-0000-0000-0000000000b1"
 
 
 class Runtime:
@@ -47,13 +56,22 @@ class Runtime:
         )
         self.account = PaperAccount(starting_balance=settings.paper_starting_balance)
         self.engine = PaperEngine(account=self.account, fill_config=self.fill_config,
-                                  on_fill=self._on_fill)
+                                  on_fill=self._on_fill, on_order_update=self._on_order_update)
+        self._persisted_closed = 0   # how many closed trades already written to DB
         self.risk_limits = RiskLimits(max_leverage=settings.paper_max_leverage)
         self.risk = RiskEngine(self.risk_limits)
         self.kill = KillSwitchRegistry(on_trip=self._on_kill_trip)
         self.strategies = [cls() for cls in ALL_STRATEGIES]
         self.ensemble = Ensemble(self.strategies)
         self.integrations: Dict[str, Integration] = {}
+
+        self.db = Database(settings.database_url)
+        self.persistence = Persistence(self.db, DEFAULT_ACCOUNT_ID, DEFAULT_USER_ID,
+                                       settings.vantage_mode)
+
+        # Autotrade is opt-in and OFF by default — signals are surfaced for
+        # human review unless explicitly enabled (a human stays in the loop).
+        self.autotrade_enabled = False
 
         self.recent_signals: List[dict] = []
         self.recent_fills: List[dict] = []
@@ -71,6 +89,11 @@ class Runtime:
 
     async def start(self) -> None:
         logger.info("runtime starting: mode={} symbols={}", self.settings.vantage_mode, self.symbols)
+        await self.db.connect()
+        restored = await self.persistence.recover(self.account)
+        if restored:
+            self.peak_equity = max(self.peak_equity, self._equity())
+        self.persistence.start()
         self.hub.start()
         self._monitor_task = asyncio.create_task(self._quality_monitor(), name="quality-monitor")
 
@@ -78,6 +101,8 @@ class Runtime:
         await self.hub.stop()
         if getattr(self, "_monitor_task", None):
             self._monitor_task.cancel()
+        await self.persistence.stop()
+        await self.db.disconnect()
 
     # ── market callbacks ────────────────────────────────────────────
 
@@ -112,9 +137,36 @@ class Runtime:
         self.recent_signals = self.recent_signals[:100]
         if self.broadcast:
             self.broadcast("signals", record)
-        # NOTE: auto-execution of ensemble signals is gated behind an explicit
-        # per-account "autotrade" toggle (Phase 3 wiring); signals are surfaced
-        # for review by default so a human stays in the loop.
+
+        # Auto-execution is gated behind an explicit, default-OFF toggle. When
+        # enabled, the signal still passes the SAME risk + kill-switch gate as a
+        # manual order — autotrade never bypasses controls.
+        if self.autotrade_enabled and sig.direction is not Direction.NEUTRAL:
+            self._run_autotrade(symbol, sig)
+
+    def _run_autotrade(self, symbol: str, sig) -> None:
+        book = self.hub.books.get(symbol)
+        if book is None:
+            return
+        current = self.account.positions.get(symbol)
+        plan = plan_autotrade(sig, book.mid, self._equity(), current, self.risk)
+        if plan.action in ("skip", "hold") or plan.order is None:
+            return
+        if plan.action == "flip" and current is not None:
+            self.place_order(Order(symbol=symbol, side=current.side.opposite,
+                                   type=OrderType.MARKET, qty=current.qty, reduce_only=True,
+                                   source="signal", reason="autotrade flip"))
+        result = self.place_order(plan.order, strategy_id=sig.strategy_id)
+        if result["accepted"]:
+            pos = self.account.positions.get(symbol)
+            if pos is not None:
+                pos.stop_loss = plan.stop_loss
+                pos.take_profit = plan.take_profit
+                self.persistence.record_position(pos)
+            logger.info("autotrade {}: {}", symbol, plan.reason)
+            if self.broadcast:
+                self.broadcast("account.autotrade",
+                               {"symbol": symbol, "action": plan.action, "reason": plan.reason})
 
     def _on_fill(self, fill: Fill) -> None:
         rec = {"symbol": fill.symbol, "side": fill.side.value, "qty": str(fill.qty),
@@ -122,8 +174,32 @@ class Runtime:
                "slippage_bps": str(round(fill.slippage_bps, 3)), "ts_ms": fill.ts_ms}
         self.recent_fills.insert(0, rec)
         self.recent_fills = self.recent_fills[:100]
+
+        # Mirror to DB (no-op if persistence disabled).
+        self.persistence.record_fill(fill)
+        while self._persisted_closed < len(self.account.closed_trades):
+            self.persistence.record_close(self.account.closed_trades[self._persisted_closed])
+            self._track_trade_outcome(self.account.closed_trades[self._persisted_closed])
+            self._persisted_closed += 1
+        pos = self.account.positions.get(fill.symbol)
+        if pos is not None:
+            self.persistence.record_position(pos)
+        marks = self._marks()
+        self.persistence.record_equity(
+            self.account.equity(marks), self.account.balance, self.account.unrealized(marks),
+            self.account.margin_used(), self.account.exposure(marks))
         if self.broadcast:
             self.broadcast("account.fills", rec)
+
+    def _track_trade_outcome(self, trade) -> None:
+        """Maintain the consecutive-loss counter that feeds the risk cooldown."""
+        if trade.pnl < ZERO:
+            self.consecutive_losses += 1
+        else:
+            self.consecutive_losses = 0
+
+    def _on_order_update(self, order: Order, note: str) -> None:
+        self.persistence.record_order(order)
 
     def _on_kill_trip(self, switch) -> None:
         logger.warning("KILL SWITCH tripped: {} {} — {}", switch.scope, switch.level, switch.reason)
@@ -235,6 +311,8 @@ class Runtime:
         eq = self.account.equity(marks)
         return {
             "mode": self.settings.vantage_mode,
+            "autotrade_enabled": self.autotrade_enabled,
+            "persistence": "on" if self.persistence.enabled else "off",
             "equity": str(round(eq, 2)),
             "balance": str(round(self.account.balance, 2)),
             "unrealized_pnl": str(round(self.account.unrealized(marks), 2)),
