@@ -438,6 +438,23 @@ async def admin_audit(request: Request, limit: int = 100):
     return {"data": rt(request).audit.feed(limit)}
 
 
+@router.get("/admin/execution")
+async def admin_execution(request: Request):
+    """Execution-seam status. Reports the active mode and whether exchange-demo
+    keys are present — booleans only, never the keys themselves."""
+    r = rt(request)
+    s = r.settings
+    return {"data": {
+        "mode": s.vantage_mode,
+        "active_provider": "paper" if s.vantage_mode == "paper" else f"{s.demo_venue}_demo",
+        "live_capable": False,   # hard-disabled in this build
+        "demo_keys_present": {
+            "bybit": bool(s.bybit_demo_api_key and s.bybit_demo_api_secret),
+            "binance_testnet": bool(s.binance_testnet_api_key and s.binance_testnet_api_secret),
+        },
+    }}
+
+
 @router.get("/admin/health")
 async def admin_health(request: Request):
     r = rt(request)

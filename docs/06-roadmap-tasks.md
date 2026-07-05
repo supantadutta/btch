@@ -38,7 +38,9 @@
 - [ ] Alert center + toasts + notification routing
 
 ### Phase 5 — Exchange demo & hardening (weeks 10–12)
-- [ ] Bybit Demo Trading execution provider behind `ExecutionProvider`
+- [x] `ExecutionProvider` abstraction + PaperExecutionProvider + provider factory ← execution commit
+- [x] Bybit Demo Trading execution provider (v5 HMAC signing, demo-host-locked, no-withdrawal) ← execution commit
+- [ ] Wire exchange_demo mode into the runtime order gateway (reconcile positions from venue)
 - [x] Binance Futures Testnet market-data provider behind `MarketDataProvider` + provider factory ← binance commit
 - [x] Audit log wired to state-changing endpoints (+ /admin/audit) ← audit commit
 - [x] API rate limiting (sliding-window middleware) ← ratelimit commit

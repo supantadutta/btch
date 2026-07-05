@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     paper_latency_ms: int = 80
     paper_max_leverage: Decimal = Decimal("5")
 
+    # Exchange-demo execution (Phase 5; empty in paper mode).
+    demo_venue: str = "bybit"
+    bybit_demo_api_key: str = ""
+    bybit_demo_api_secret: str = ""
+    binance_testnet_api_key: str = ""
+    binance_testnet_api_secret: str = ""
+
     @property
     def symbol_list(self) -> list[str]:
         return [s.strip() for s in self.symbols.split(",") if s.strip()]
