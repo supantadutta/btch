@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://vantage:vantage@localhost:5432/vantage"
     redis_url: str = "redis://localhost:6379/0"
 
+    auth_required: bool = False          # opt-in RBAC; off for dev/paper demo
     jwt_secret: str = "dev-only-secret"
     jwt_access_ttl_min: int = 15
     jwt_refresh_ttl_days: int = 14

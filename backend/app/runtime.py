@@ -19,6 +19,7 @@ from .db.session import Database
 from .services.autotrade import plan_autotrade
 from .services.integrations.registry import REGISTRY, Integration
 from .services.audit import AuditService
+from .services.auth import UserStore
 from .services.notifications import Alert, NotificationService
 from .services.market_data.factory import make_provider
 from .services.market_data.hub import MarketHub
@@ -75,6 +76,7 @@ class Runtime:
         self.persistence = Persistence(self.db, DEFAULT_ACCOUNT_ID, DEFAULT_USER_ID,
                                        settings.vantage_mode)
         self.audit = AuditService(sink=self.persistence.record_audit)
+        self.users = UserStore()
 
         # Autotrade is opt-in and OFF by default — signals are surfaced for
         # human review unless explicitly enabled (a human stays in the loop).
