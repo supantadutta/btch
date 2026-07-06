@@ -8,8 +8,10 @@ import time
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
+
+from .auth_routes import require_role
 
 from ..schemas.api import (
     BacktestRequest, IntegrationCreate, KillScope, KillTrip, OrderCreate, ProtectRequest,
@@ -85,7 +87,7 @@ async def money_overview(request: Request):
 
 
 @router.post("/orders")
-async def create_order(request: Request, body: OrderCreate):
+async def create_order(request: Request, body: OrderCreate, _auth=require_role("trader", "admin")):
     r = rt(request)
     order = Order(
         symbol=body.symbol, side=Side(body.side), type=OrderType(body.type),
@@ -207,7 +209,7 @@ async def signals(request: Request, limit: int = 50):
 
 
 @router.post("/autotrade")
-async def set_autotrade(request: Request, body: dict):
+async def set_autotrade(request: Request, body: dict, _auth=require_role("admin")):
     """Toggle gated auto-execution of ensemble signals. Default OFF; autotraded
     orders still pass the full risk + kill-switch gate."""
     r = rt(request)
@@ -284,7 +286,7 @@ async def risk_summary(request: Request):
 
 
 @router.patch("/risk/limits")
-async def update_limits(request: Request, body: RiskLimitsUpdate):
+async def update_limits(request: Request, body: RiskLimitsUpdate, _auth=require_role("admin")):
     L = rt(request).risk_limits
     if not hasattr(L, body.key):
         raise HTTPException(400, f"unknown limit '{body.key}'")
@@ -313,7 +315,7 @@ async def killswitch_trip(request: Request, body: KillTrip):
 
 
 @router.post("/killswitch/acknowledge")
-async def killswitch_ack(request: Request, body: KillScope):
+async def killswitch_ack(request: Request, body: KillScope, _auth=require_role("admin")):
     r = rt(request)
     try:
         sw = r.kill.acknowledge(body.scope, actor="ui")
@@ -324,7 +326,7 @@ async def killswitch_ack(request: Request, body: KillScope):
 
 
 @router.post("/killswitch/rearm")
-async def killswitch_rearm(request: Request, body: KillScope):
+async def killswitch_rearm(request: Request, body: KillScope, _auth=require_role("admin")):
     r = rt(request)
     try:
         sw = r.kill.rearm(body.scope, actor="ui")
@@ -459,7 +461,7 @@ async def list_integrations(request: Request):
 
 
 @router.post("/integrations")
-async def create_integration(request: Request, body: IntegrationCreate):
+async def create_integration(request: Request, body: IntegrationCreate, _auth=require_role("admin")):
     """Construct + register an integration. Secrets are held for signing/sending
     but are NEVER returned in full — the response echoes masked values only."""
     r = rt(request)
