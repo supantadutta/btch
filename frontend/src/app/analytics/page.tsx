@@ -3,12 +3,13 @@ import { Card, EmptyState, KpiStat } from "@/components/ui/primitives";
 import { usePoll } from "@/lib/hooks";
 import { API_BASE as API } from "@/lib/api";
 import { fmtUsd, signClass } from "@/lib/format";
-import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
+import { Area, AreaChart, Bar, BarChart, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 
 export default function Analytics() {
   const { data: perf } = usePoll<any>("/analytics/performance", 5000);
   const { data: journal } = usePoll<any[]>("/analytics/journal?limit=50", 5000);
   const { data: curve } = usePoll<any[]>("/analytics/equity-curve?limit=300", 8000);
+  const { data: sess } = usePoll<any>("/analytics/sessions", 8000);
 
   return (
     <div className="space-y-4">
@@ -51,6 +52,34 @@ export default function Analytics() {
         ) : (
           <EmptyState title="No equity history yet"
             hint="Equity is snapshotted on every fill and persisted to Postgres; this curve fills in as you trade." />
+        )}
+      </Card>
+
+      <Card title="Session Analytics — PnL by UTC hour" actions={
+        sess && (sess.best_hour || sess.best_day) ? (
+          <span className="text-[11px] text-text-faint">
+            best hour {sess.best_hour ? `${sess.best_hour.label}:00 (${fmtUsd(sess.best_hour.pnl)})` : "—"} ·
+            best day {sess.best_day ? `${sess.best_day.label} (${fmtUsd(sess.best_day.pnl)})` : "—"}
+          </span>
+        ) : null
+      }>
+        {sess && sess.by_hour?.some((h: any) => h.trades > 0) ? (
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={sess.by_hour}>
+              <XAxis dataKey="hour" tick={{ fill: "#5A6270", fontSize: 10 }} stroke="#232A33" />
+              <YAxis tick={{ fill: "#5A6270", fontSize: 10 }} stroke="#232A33" width={48}
+                tickFormatter={(v) => `$${v}`} />
+              <Tooltip contentStyle={{ background: "#12161C", border: "1px solid #232A33", borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="pnl">
+                {sess.by_hour.map((h: any, i: number) => (
+                  <Cell key={i} fill={h.pnl > 0 ? "#2EBD85" : h.pnl < 0 ? "#F6465D" : "#232A33"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <EmptyState title="No session data yet"
+            hint="Once trades close, this shows which UTC hours and weekdays your strategies make or lose money." />
         )}
       </Card>
 

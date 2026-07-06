@@ -351,6 +351,20 @@ async def monte_carlo(request: Request, paths: int = 2000, horizon: int = 100):
     return {"data": res.__dict__}
 
 
+@router.get("/analytics/sessions")
+async def sessions(request: Request):
+    """PnL by session: UTC hour-of-day and weekday, with best/worst callouts."""
+    r = rt(request)
+    trades = r.account.closed_trades
+    by_hour = metrics.pnl_by_hour(trades)
+    by_weekday = metrics.pnl_by_weekday(trades)
+    best_hour, worst_hour = metrics.best_worst_bucket(by_hour, "pnl", "hour")
+    best_day, worst_day = metrics.best_worst_bucket(by_weekday, "pnl", "weekday")
+    return {"data": {"by_hour": by_hour, "by_weekday": by_weekday,
+                     "best_hour": best_hour, "worst_hour": worst_hour,
+                     "best_day": best_day, "worst_day": worst_day}}
+
+
 @router.get("/analytics/journal")
 async def journal(request: Request, limit: int = 50):
     r = rt(request)

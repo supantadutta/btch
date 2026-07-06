@@ -86,6 +86,50 @@ def performance(starting_balance: float, trades: Sequence[ClosedTrade]) -> Perfo
     )
 
 
+WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def pnl_by_hour(trades: Sequence[ClosedTrade]) -> List[dict]:
+    """Net PnL and trade count grouped by UTC hour-of-day (0–23) of the exit."""
+    import datetime as _dt
+    buckets = {h: {"pnl": 0.0, "trades": 0, "wins": 0} for h in range(24)}
+    for t in trades:
+        if not t.closed_ts_ms:
+            continue
+        h = _dt.datetime.fromtimestamp(t.closed_ts_ms / 1000, tz=_dt.timezone.utc).hour
+        b = buckets[h]
+        b["pnl"] += float(t.pnl)
+        b["trades"] += 1
+        b["wins"] += 1 if t.pnl > 0 else 0
+    return [{"hour": h, **buckets[h],
+             "win_rate": (buckets[h]["wins"] / buckets[h]["trades"] * 100)
+             if buckets[h]["trades"] else 0.0} for h in range(24)]
+
+
+def pnl_by_weekday(trades: Sequence[ClosedTrade]) -> List[dict]:
+    """Net PnL and trade count grouped by UTC weekday of the exit."""
+    import datetime as _dt
+    buckets = {d: {"pnl": 0.0, "trades": 0} for d in range(7)}
+    for t in trades:
+        if not t.closed_ts_ms:
+            continue
+        d = _dt.datetime.fromtimestamp(t.closed_ts_ms / 1000, tz=_dt.timezone.utc).weekday()
+        buckets[d]["pnl"] += float(t.pnl)
+        buckets[d]["trades"] += 1
+    return [{"weekday": WEEKDAYS[d], "index": d, **buckets[d]} for d in range(7)]
+
+
+def best_worst_bucket(buckets: Sequence[dict], key: str, label_key: str):
+    """Return (best, worst) buckets by `key`, ignoring empty ones."""
+    active = [b for b in buckets if b.get("trades", 0) > 0]
+    if not active:
+        return None, None
+    best = max(active, key=lambda b: b[key])
+    worst = min(active, key=lambda b: b[key])
+    return {"label": best[label_key], "pnl": round(best[key], 2)}, \
+           {"label": worst[label_key], "pnl": round(worst[key], 2)}
+
+
 def pnl_histogram(trades: Sequence[ClosedTrade], bins: int = 21) -> List[dict]:
     pnls = [float(t.pnl) for t in trades]
     if not pnls:
