@@ -13,6 +13,7 @@ export default function Analytics() {
   const { data: sess } = usePoll<any>("/analytics/sessions", 8000);
   const { data: byStrat } = usePoll<any>("/analytics/pnl?group_by=strategy", 8000);
   const { data: scatter } = usePoll<any[]>("/analytics/confidence-scatter", 8000);
+  const { data: dist } = usePoll<any>("/analytics/distribution?metric=trade_pnl", 8000);
 
   return (
     <div className="space-y-4">
@@ -55,6 +56,27 @@ export default function Analytics() {
         ) : (
           <EmptyState title="No equity history yet"
             hint="Equity is snapshotted on every fill and persisted to Postgres; this curve fills in as you trade." />
+        )}
+      </Card>
+
+      <Card title="Win / Loss Distribution — trade PnL histogram">
+        {dist?.bins?.length ? (
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={dist.bins.map((b: any) => ({ label: b.from, count: b.count, from: b.from }))}>
+              <XAxis dataKey="from" tick={{ fill: "#5A6270", fontSize: 10 }} stroke="#232A33"
+                tickFormatter={(v) => `$${Math.round(v)}`} />
+              <YAxis tick={{ fill: "#5A6270", fontSize: 10 }} stroke="#232A33" width={36} allowDecimals={false} />
+              <Tooltip contentStyle={{ background: "#12161C", border: "1px solid #232A33", borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="count">
+                {dist.bins.map((b: any, i: number) => (
+                  <Cell key={i} fill={b.from >= 0 ? "#2EBD85" : "#F6465D"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <EmptyState title="No distribution yet"
+            hint={`Trade-PnL histogram (${dist?.n ?? 0} trades). Fills in as trades close — green bins are wins, red are losses.`} />
         )}
       </Card>
 

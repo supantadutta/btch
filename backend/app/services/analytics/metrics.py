@@ -170,15 +170,26 @@ def best_worst_bucket(buckets: Sequence[dict], key: str, label_key: str):
            {"label": worst[label_key], "pnl": round(worst[key], 2)}
 
 
-def pnl_histogram(trades: Sequence[ClosedTrade], bins: int = 21) -> List[dict]:
-    pnls = [float(t.pnl) for t in trades]
-    if not pnls:
+def histogram(values: Sequence[float], bins: int = 21) -> List[dict]:
+    """Generic equal-width histogram. Each bin: {from, to, count}. Empty input
+    yields an empty list; a degenerate range (all equal) yields one populated bin."""
+    vals = list(values)
+    if not vals:
         return []
-    lo, hi = min(pnls), max(pnls)
+    lo, hi = min(vals), max(vals)
     width = (hi - lo) / bins or 1.0
     counts = [0] * bins
-    for p in pnls:
-        idx = min(int((p - lo) / width), bins - 1)
+    for v in vals:
+        idx = min(int((v - lo) / width), bins - 1)
         counts[idx] += 1
-    return [{"from": lo + i * width, "to": lo + (i + 1) * width, "count": c}
+    return [{"from": round(lo + i * width, 2), "to": round(lo + (i + 1) * width, 2), "count": c}
             for i, c in enumerate(counts)]
+
+
+def pnl_histogram(trades: Sequence[ClosedTrade], bins: int = 21) -> List[dict]:
+    return histogram([float(t.pnl) for t in trades], bins)
+
+
+def hold_times_minutes(trades: Sequence[ClosedTrade]) -> List[float]:
+    return [(t.closed_ts_ms - t.position.opened_ts_ms) / 60_000
+            for t in trades if t.position.opened_ts_ms and t.closed_ts_ms]

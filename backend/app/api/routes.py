@@ -367,6 +367,22 @@ async def confidence_scatter(request: Request):
     return {"data": metrics.confidence_scatter(rt(request).account.closed_trades)}
 
 
+@router.get("/analytics/distribution")
+async def distribution(request: Request, metric: str = "trade_pnl", bins: int = 21):
+    """Distribution histogram of closed trades. metric = trade_pnl | hold_time."""
+    trades = rt(request).account.closed_trades
+    if metric == "hold_time":
+        values = metrics.hold_times_minutes(trades)
+        unit = "minutes"
+    elif metric == "trade_pnl":
+        values = [float(t.pnl) for t in trades]
+        unit = "usdt"
+    else:
+        raise HTTPException(400, "metric must be 'trade_pnl' or 'hold_time'")
+    return {"data": {"metric": metric, "unit": unit,
+                     "bins": metrics.histogram(values, bins), "n": len(values)}}
+
+
 @router.get("/analytics/sessions")
 async def sessions(request: Request):
     """PnL by session: UTC hour-of-day and weekday, with best/worst callouts."""
