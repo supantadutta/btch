@@ -14,6 +14,7 @@ export default function Analytics() {
   const { data: byStrat } = usePoll<any>("/analytics/pnl?group_by=strategy", 8000);
   const { data: scatter } = usePoll<any[]>("/analytics/confidence-scatter", 8000);
   const { data: dist } = usePoll<any>("/analytics/distribution?metric=trade_pnl", 8000);
+  const { data: daily } = usePoll<any[]>("/analytics/daily", 8000);
 
   return (
     <div className="space-y-4">
@@ -56,6 +57,28 @@ export default function Analytics() {
         ) : (
           <EmptyState title="No equity history yet"
             hint="Equity is snapshotted on every fill and persisted to Postgres; this curve fills in as you trade." />
+        )}
+      </Card>
+
+      <Card title="Daily P&L (UTC)">
+        {daily?.length ? (
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={daily}>
+              <XAxis dataKey="date" tick={{ fill: "#5A6270", fontSize: 10 }} stroke="#232A33"
+                tickFormatter={(v) => v.slice(5)} />
+              <YAxis tick={{ fill: "#5A6270", fontSize: 10 }} stroke="#232A33" width={48}
+                tickFormatter={(v) => `$${v}`} />
+              <Tooltip contentStyle={{ background: "#12161C", border: "1px solid #232A33", borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="pnl">
+                {daily.map((d: any, i: number) => (
+                  <Cell key={i} fill={d.pnl >= 0 ? "#2EBD85" : "#F6465D"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <EmptyState title="No daily P&L yet"
+            hint="Realized P&L per UTC day. Green days made money, red days lost — populates as trades close." />
         )}
       </Card>
 

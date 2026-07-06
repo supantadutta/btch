@@ -129,6 +129,29 @@ def confidence_scatter(trades: Sequence[ClosedTrade]) -> List[dict]:
     return pts
 
 
+def pnl_by_day(trades: Sequence[ClosedTrade]) -> List[dict]:
+    """Net realized PnL per UTC calendar date (exit date), with a running
+    cumulative total. Days with no closed trades are omitted."""
+    import datetime as _dt
+    daily: dict[str, dict] = {}
+    for t in trades:
+        if not t.closed_ts_ms:
+            continue
+        d = _dt.datetime.fromtimestamp(t.closed_ts_ms / 1000, tz=_dt.timezone.utc).date().isoformat()
+        b = daily.setdefault(d, {"date": d, "pnl": 0.0, "trades": 0, "wins": 0})
+        b["pnl"] += float(t.pnl)
+        b["trades"] += 1
+        b["wins"] += 1 if t.pnl > 0 else 0
+    rows = [daily[d] for d in sorted(daily)]
+    cum = 0.0
+    for r in rows:
+        cum += r["pnl"]
+        r["pnl"] = round(r["pnl"], 2)
+        r["cumulative"] = round(cum, 2)
+        r["win_rate"] = round(r["wins"] / r["trades"] * 100, 1) if r["trades"] else 0.0
+    return rows
+
+
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 

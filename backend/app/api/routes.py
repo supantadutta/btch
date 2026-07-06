@@ -369,6 +369,12 @@ async def confidence_scatter(request: Request):
     return {"data": metrics.confidence_scatter(rt(request).account.closed_trades)}
 
 
+@router.get("/analytics/daily")
+async def daily_pnl(request: Request):
+    """Daily realized P&L (UTC calendar date) with running cumulative."""
+    return {"data": metrics.pnl_by_day(rt(request).account.closed_trades)}
+
+
 @router.get("/analytics/distribution")
 async def distribution(request: Request, metric: str = "trade_pnl", bins: int = 21):
     """Distribution histogram of closed trades. metric = trade_pnl | hold_time."""
