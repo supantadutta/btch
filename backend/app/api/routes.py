@@ -369,6 +369,26 @@ async def confidence_scatter(request: Request):
     return {"data": metrics.confidence_scatter(rt(request).account.closed_trades)}
 
 
+@router.get("/analytics/paper-vs-backtest")
+async def paper_vs_backtest(request: Request, symbol: str = "BTCUSDT", tf: str = "15m",
+                            lookback_days: int = 30):
+    """Divergence report: live paper metrics vs a backtest of the active strategy
+    set over the same recent window (both share the fill/fee/funding models)."""
+    from ..services.backtest.engine import run_backtest as _run
+    from ..services.strategy.base import Candle as SC
+    r = rt(request)
+    paper_report = metrics.performance(float(r.account.starting_balance), r.account.closed_trades)
+    now = int(time.time() * 1000)
+    rows = await r.provider.backfill_candles(symbol, tf, now - lookback_days * 86_400_000, now)
+    candles = [SC(ts_ms=c.ts_ms, open=c.open, high=c.high, low=c.low,
+                  close=c.close, volume=c.volume) for c in rows]
+    if len(candles) < 130:
+        raise HTTPException(422, "not enough history for the backtest leg")
+    bt_account = _run(symbol, candles, r.ensemble)
+    bt_report = metrics.performance(float(bt_account.starting_balance), bt_account.closed_trades)
+    return {"data": metrics.compare_reports(paper_report, bt_report)}
+
+
 @router.get("/analytics/daily")
 async def daily_pnl(request: Request):
     """Daily realized P&L (UTC calendar date) with running cumulative."""

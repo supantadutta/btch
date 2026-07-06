@@ -129,6 +129,35 @@ def confidence_scatter(trades: Sequence[ClosedTrade]) -> List[dict]:
     return pts
 
 
+def compare_reports(paper: "PerformanceReport", backtest: "PerformanceReport") -> dict:
+    """Paper-vs-backtest divergence report. Compares per-trade expectancy, win
+    rate, profit factor and drawdown. Divergence is expected (live markets add
+    costs/latency a candle backtest can't capture); this quantifies it so results
+    are never presented as if paper == backtest."""
+    def pf(r):
+        return r.profit_factor if r.profit_factor is not None else None
+
+    def diff(a, b):
+        return None if a is None or b is None else round(a - b, 4)
+
+    return {
+        "paper": {"trades": paper.trades, "expectancy": round(paper.expectancy, 2),
+                  "win_rate": round(paper.win_rate, 1), "profit_factor": pf(paper),
+                  "max_drawdown_pct": round(paper.max_drawdown_pct, 1)},
+        "backtest": {"trades": backtest.trades, "expectancy": round(backtest.expectancy, 2),
+                     "win_rate": round(backtest.win_rate, 1), "profit_factor": pf(backtest),
+                     "max_drawdown_pct": round(backtest.max_drawdown_pct, 1)},
+        "divergence": {
+            "expectancy": diff(paper.expectancy, backtest.expectancy),
+            "win_rate": diff(paper.win_rate, backtest.win_rate),
+            "profit_factor": diff(pf(paper), pf(backtest)),
+            "max_drawdown_pct": diff(paper.max_drawdown_pct, backtest.max_drawdown_pct),
+        },
+        "note": ("paper trades on live ticks; backtest on candle-approximated fills. "
+                 "Divergence is expected and healthy to inspect — see docs/07."),
+    }
+
+
 def pnl_by_day(trades: Sequence[ClosedTrade]) -> List[dict]:
     """Net realized PnL per UTC calendar date (exit date), with a running
     cumulative total. Days with no closed trades are omitted."""

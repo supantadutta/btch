@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Card, Badge, EmptyState, ConfidenceMeter } from "@/components/ui/primitives";
 import { usePoll } from "@/lib/hooks";
-import { patch, post } from "@/lib/api";
+import { api, patch, post } from "@/lib/api";
 import { fmtUsd, signClass } from "@/lib/format";
 
 export default function StrategyLab() {
@@ -12,6 +12,8 @@ export default function StrategyLab() {
   const [running, setRunning] = useState(false);
   const [wf, setWf] = useState<any>(null);
   const [wfRunning, setWfRunning] = useState(false);
+  const [pvb, setPvb] = useState<any>(null);
+  const [pvbRunning, setPvbRunning] = useState(false);
 
   const toggle = async (id: string, enabled: boolean) => {
     try { await patch(`/strategies/${id}`, { enabled }); reload(); } catch {}
@@ -29,6 +31,15 @@ export default function StrategyLab() {
     try { setWf(await post("/backtests/walk-forward", { symbol: "BTCUSDT", tf: "15m", lookback_days: 90 })); }
     catch (e: any) { setWf({ error: e.message }); }
     finally { setWfRunning(false); }
+  };
+
+  const runPvb = async () => {
+    setPvbRunning(true);
+    try {
+      const q = new URLSearchParams({ symbol: "BTCUSDT", tf: "15m", lookback_days: "30" });
+      setPvb(await api(`/analytics/paper-vs-backtest?${q}`));
+    } catch (e: any) { setPvb({ error: e.message }); }
+    finally { setPvbRunning(false); }
   };
 
   return (
@@ -116,6 +127,50 @@ export default function StrategyLab() {
         ) : (
           <EmptyState title="No walk-forward run yet"
             hint="Splits history into sequential out-of-sample folds; each fold trades a period the prior fold didn't — a stability test across market regimes." />
+        )}
+      </Card>
+
+      <Card title="Paper vs Backtest — divergence report" actions={
+        <button onClick={runPvb} disabled={pvbRunning}
+          className="px-3 py-1 rounded bg-accent/15 text-accent border border-accent/40 text-[12px]">
+          {pvbRunning ? "Running…" : "Compare 30d BTC 15m"}
+        </button>
+      }>
+        {pvb?.error ? (
+          <EmptyState title="Comparison unavailable" hint={pvb.error} />
+        ) : pvb?.divergence ? (
+          <div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12px] tabular">
+                <thead className="text-text-faint border-b border-border">
+                  <tr>{["metric", "paper (live)", "backtest", "divergence"].map((h) => (
+                    <th key={h} className="py-1.5 text-left font-normal">{h}</th>))}</tr>
+                </thead>
+                <tbody>
+                  {[
+                    ["Trades", pvb.paper.trades, pvb.backtest.trades, null],
+                    ["Expectancy", fmtUsd(pvb.paper.expectancy), fmtUsd(pvb.backtest.expectancy), pvb.divergence.expectancy],
+                    ["Win rate %", pvb.paper.win_rate, pvb.backtest.win_rate, pvb.divergence.win_rate],
+                    ["Profit factor", pvb.paper.profit_factor ?? "—", pvb.backtest.profit_factor ?? "—", pvb.divergence.profit_factor],
+                    ["Max DD %", pvb.paper.max_drawdown_pct, pvb.backtest.max_drawdown_pct, pvb.divergence.max_drawdown_pct],
+                  ].map((row: any, i) => (
+                    <tr key={i} className="border-b border-border/30">
+                      <td className="py-1.5 text-text-dim">{row[0]}</td>
+                      <td className="text-text">{row[1]}</td>
+                      <td className="text-text">{row[2]}</td>
+                      <td className={row[3] == null ? "text-text-faint" : signClass(row[3])}>
+                        {row[3] == null ? "—" : (Number(row[3]) > 0 ? "+" : "") + row[3]}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="text-[10px] text-text-faint mt-2">{pvb.note}</div>
+          </div>
+        ) : (
+          <EmptyState title="No comparison run yet"
+            hint="Compares your live paper metrics against a backtest of the active strategies over the same window — divergence is expected and healthy to inspect." />
         )}
       </Card>
 
