@@ -1,6 +1,7 @@
 "use client";
 import { Card, EmptyState, KpiStat } from "@/components/ui/primitives";
 import { usePoll } from "@/lib/hooks";
+import { API_BASE as API } from "@/lib/api";
 import { fmtUsd, signClass } from "@/lib/format";
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 
@@ -11,7 +12,13 @@ export default function Analytics() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Performance Analytics</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold">Performance Analytics</h1>
+        <a href={`${API}/analytics/export/journal.csv`}
+          className="text-[12px] text-accent border border-accent/40 rounded px-2.5 py-1 hover:bg-accent/10">
+          ↓ Export journal CSV
+        </a>
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
         <KpiStat label="Trades" value={perf?.trades ?? "—"} />

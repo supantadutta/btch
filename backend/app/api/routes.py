@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
 
 from ..schemas.api import (
     BacktestRequest, IntegrationCreate, KillScope, KillTrip, OrderCreate, ProtectRequest,
@@ -363,6 +364,29 @@ async def journal(request: Request, limit: int = 50):
                       "pnl": str(round(t.pnl, 2)), "fees": str(round(t.position.fees_paid, 4)),
                       "funding": str(round(t.position.funding_paid, 4)),
                       "closed_ts_ms": t.closed_ts_ms} for t in r.account.closed_trades[-limit:]]}
+
+
+@router.get("/analytics/export/ledger.csv")
+async def export_ledger(request: Request):
+    """Money in/out ledger as CSV (RFC 4180) for spreadsheet analysis."""
+    from ..services.analytics.export import ledger_csv
+    rows = rt(request).money_overview()["ledger"]
+    return Response(ledger_csv(rows), media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=vantage_ledger.csv"})
+
+
+@router.get("/analytics/export/journal.csv")
+async def export_journal(request: Request):
+    """Trade journal (durable, closed trades) as CSV."""
+    from ..services.analytics.export import journal_csv
+    r = rt(request)
+    rows = await r.persistence.closed_trades(1000) if r.persistence.enabled else [
+        {"symbol": t.position.symbol, "side": t.position.side.value, "pnl": str(round(t.pnl, 2)),
+         "fees": str(round(t.position.fees_paid, 4)), "funding": str(round(t.position.funding_paid, 4)),
+         "entry_reason": t.position.entry_reason, "exit_reason": t.exit_reason,
+         "closed_ts_ms": t.closed_ts_ms} for t in r.account.closed_trades]
+    return Response(journal_csv(rows), media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=vantage_journal.csv"})
 
 
 @router.get("/analytics/equity-curve")

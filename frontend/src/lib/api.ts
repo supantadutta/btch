@@ -1,6 +1,7 @@
 // Thin typed API client. Secrets never touch the frontend; this only reads
 // data and issues paper-mode actions to the backend.
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+export const API_BASE = BASE;
 
 export async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

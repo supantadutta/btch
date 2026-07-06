@@ -1,5 +1,6 @@
 "use client";
 import { usePoll } from "@/lib/hooks";
+import { API_BASE as API } from "@/lib/api";
 import { fmtUsd, signClass } from "@/lib/format";
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 
@@ -165,8 +166,14 @@ export default function MoneyOverview() {
 
       {/* Money In/Out Ledger */}
       <div className="border border-border bg-surface rounded-lg">
-        <div className="px-4 py-2 border-b border-border text-text-faint text-[11px] tracking-widest">
-          MONEY IN / OUT LEDGER — {data.ledger.length} ROWS
+        <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+          <span className="text-text-faint text-[11px] tracking-widest">
+            MONEY IN / OUT LEDGER — {data.ledger.length} ROWS
+          </span>
+          <a href={`${API}/analytics/export/ledger.csv`}
+            className="text-[11px] text-accent border border-accent/40 rounded px-2 py-0.5 hover:bg-accent/10">
+            ↓ Export CSV
+          </a>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-[11px] tabular whitespace-nowrap">
