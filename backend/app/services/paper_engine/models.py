@@ -161,6 +161,7 @@ class Position:
     take_profit: Optional[Decimal] = None
     entry_reason: str = ""
     strategy_id: Optional[str] = None
+    entry_confidence: Optional[float] = None   # signal conviction at entry (for scatter)
     opened_ts_ms: int = 0
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 

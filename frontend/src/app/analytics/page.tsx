@@ -3,13 +3,16 @@ import { Card, EmptyState, KpiStat } from "@/components/ui/primitives";
 import { usePoll } from "@/lib/hooks";
 import { API_BASE as API } from "@/lib/api";
 import { fmtUsd, signClass } from "@/lib/format";
-import { Area, AreaChart, Bar, BarChart, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
+import { Area, AreaChart, Bar, BarChart, Cell, ResponsiveContainer, Scatter, ScatterChart,
+  XAxis, YAxis, ZAxis, Tooltip } from "recharts";
 
 export default function Analytics() {
   const { data: perf } = usePoll<any>("/analytics/performance", 5000);
   const { data: journal } = usePoll<any[]>("/analytics/journal?limit=50", 5000);
   const { data: curve } = usePoll<any[]>("/analytics/equity-curve?limit=300", 8000);
   const { data: sess } = usePoll<any>("/analytics/sessions", 8000);
+  const { data: byStrat } = usePoll<any>("/analytics/pnl?group_by=strategy", 8000);
+  const { data: scatter } = usePoll<any[]>("/analytics/confidence-scatter", 8000);
 
   return (
     <div className="space-y-4">
@@ -54,6 +57,54 @@ export default function Analytics() {
             hint="Equity is snapshotted on every fill and persisted to Postgres; this curve fills in as you trade." />
         )}
       </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <Card title="PnL by Strategy">
+          {byStrat?.groups?.length ? (
+            <div className="space-y-1 text-[12px] tabular">
+              <div className="flex text-text-faint text-[10px] uppercase border-b border-border pb-1">
+                <span className="flex-1">strategy</span><span className="w-16 text-right">trades</span>
+                <span className="w-16 text-right">win%</span><span className="w-20 text-right">PF</span>
+                <span className="w-24 text-right">net pnl</span>
+              </div>
+              {byStrat.groups.map((g: any) => (
+                <div key={g.group} className="flex border-b border-border/30 py-1">
+                  <span className="flex-1 text-accent">{g.group}</span>
+                  <span className="w-16 text-right text-text-dim">{g.trades}</span>
+                  <span className="w-16 text-right text-text-dim">{g.win_rate}%</span>
+                  <span className="w-20 text-right text-text-dim">{g.profit_factor ?? "—"}</span>
+                  <span className={`w-24 text-right ${signClass(g.net_pnl)}`}>{fmtUsd(g.net_pnl)}</span>
+                </div>
+              ))}
+            </div>
+          ) : <EmptyState title="No strategy PnL yet" hint="Groups closed trades by the strategy that opened them." />}
+        </Card>
+
+        <Card title="Confidence → Result (does conviction predict PnL?)">
+          {scatter?.length ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <ScatterChart margin={{ top: 8, right: 8, bottom: 4, left: 4 }}>
+                <XAxis type="number" dataKey="confidence" name="confidence" domain={[0, 1]}
+                  tick={{ fill: "#5A6270", fontSize: 10 }} stroke="#232A33"
+                  tickFormatter={(v) => v.toFixed(1)} />
+                <YAxis type="number" dataKey="pnl" name="pnl" tick={{ fill: "#5A6270", fontSize: 10 }}
+                  stroke="#232A33" width={52} tickFormatter={(v) => `$${v}`} />
+                <ZAxis range={[40, 40]} />
+                <Tooltip contentStyle={{ background: "#12161C", border: "1px solid #232A33", borderRadius: 8, fontSize: 12 }}
+                  cursor={{ strokeDasharray: "3 3", stroke: "#232A33" }} />
+                <Scatter data={scatter}>
+                  {scatter.map((p, i) => (
+                    <Cell key={i} fill={p.win ? "#2EBD85" : "#F6465D"} />
+                  ))}
+                </Scatter>
+              </ScatterChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyState title="No conviction data yet"
+              hint="Each dot is a closed strategy trade: entry confidence (x) vs realized PnL (y). Fills in once autotrade or backtest trades close." />
+          )}
+        </Card>
+      </div>
 
       <Card title="Session Analytics — PnL by UTC hour" actions={
         sess && (sess.best_hour || sess.best_day) ? (

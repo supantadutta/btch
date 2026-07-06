@@ -86,6 +86,46 @@ def performance(starting_balance: float, trades: Sequence[ClosedTrade]) -> Perfo
     )
 
 
+def pnl_by_group(trades: Sequence[ClosedTrade], key: str) -> List[dict]:
+    """Group closed-trade PnL by 'symbol' or 'strategy'. Returns per-group net
+    PnL, trade count, win rate, gross profit/loss and profit factor."""
+    groups: dict[str, list[float]] = {}
+    for t in trades:
+        if key == "strategy":
+            name = t.position.strategy_id or "manual"
+        else:
+            name = t.position.symbol
+        groups.setdefault(name, []).append(float(t.pnl))
+    out: List[dict] = []
+    for name, pnls in groups.items():
+        wins = [p for p in pnls if p > 0]
+        gp = sum(wins)
+        gl = -sum(p for p in pnls if p <= 0)
+        out.append({
+            "group": name, "trades": len(pnls), "net_pnl": round(sum(pnls), 2),
+            "win_rate": round(len(wins) / len(pnls) * 100, 1) if pnls else 0.0,
+            "gross_profit": round(gp, 2), "gross_loss": round(gl, 2),
+            "profit_factor": round(gp / gl, 2) if gl > 0 else None,
+        })
+    out.sort(key=lambda g: g["net_pnl"], reverse=True)
+    return out
+
+
+def confidence_scatter(trades: Sequence[ClosedTrade]) -> List[dict]:
+    """Per-trade (entry confidence → realized PnL) points for the
+    confidence-to-result correlation scatter. Trades without a recorded
+    confidence (e.g. manual) are omitted."""
+    pts: List[dict] = []
+    for t in trades:
+        conf = getattr(t.position, "entry_confidence", None)
+        if conf is None:
+            continue
+        pts.append({"confidence": round(float(conf), 3), "pnl": round(float(t.pnl), 2),
+                    "symbol": t.position.symbol, "strategy": t.position.strategy_id or "manual",
+                    "win": t.pnl > 0})
+    return pts
+
+
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 

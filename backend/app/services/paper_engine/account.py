@@ -43,6 +43,7 @@ class PaperAccount:
         entry_reason: str = "",
         exit_reason: str = "",
         strategy_id: Optional[str] = None,
+        entry_confidence: Optional[float] = None,
     ) -> Position | None:
         """Apply a fill: open, add, reduce, close, or flip a position.
         Fees always reduce balance immediately. Returns the affected position
@@ -54,7 +55,7 @@ class PaperAccount:
             pos = Position(
                 symbol=fill.symbol, side=fill.side, qty=fill.qty, avg_entry=fill.price,
                 leverage=leverage, entry_reason=entry_reason, strategy_id=strategy_id,
-                opened_ts_ms=fill.ts_ms, fees_paid=fill.fee,
+                entry_confidence=entry_confidence, opened_ts_ms=fill.ts_ms, fees_paid=fill.fee,
             )
             self.positions[fill.symbol] = pos
             return pos

@@ -27,6 +27,7 @@ class _Pending:
     entry_reason: str = ""
     exit_reason: str = ""
     strategy_id: Optional[str] = None
+    entry_confidence: Optional[float] = None
 
 
 @dataclass
@@ -50,6 +51,7 @@ class PaperEngine:
         entry_reason: str = "",
         exit_reason: str = "",
         strategy_id: Optional[str] = None,
+        entry_confidence: Optional[float] = None,
     ) -> Order:
         if order.qty <= ZERO:
             order.status = OrderStatus.REJECTED
@@ -60,7 +62,8 @@ class PaperEngine:
             self._notify(order, "reduce-only with no opposing position")
             return order
         order.status = OrderStatus.ACCEPTED
-        self._pending[order.id] = _Pending(order, now_ms, entry_reason, exit_reason, strategy_id)
+        self._pending[order.id] = _Pending(order, now_ms, entry_reason, exit_reason,
+                                           strategy_id, entry_confidence)
         self._notify(order, "accepted")
         return order
 
@@ -130,7 +133,7 @@ class PaperEngine:
                 result.fill, leverage=order.leverage,
                 entry_reason=p.entry_reason or order.reason,
                 exit_reason=p.exit_reason or order.reason,
-                strategy_id=p.strategy_id,
+                strategy_id=p.strategy_id, entry_confidence=p.entry_confidence,
             )
             if self.on_fill:
                 self.on_fill(result.fill)

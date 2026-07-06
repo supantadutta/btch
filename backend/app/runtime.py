@@ -176,7 +176,8 @@ class Runtime:
             self.place_order(Order(symbol=symbol, side=current.side.opposite,
                                    type=OrderType.MARKET, qty=current.qty, reduce_only=True,
                                    source="signal", reason="autotrade flip"))
-        result = self.place_order(plan.order, strategy_id=sig.strategy_id)
+        result = self.place_order(plan.order, strategy_id=sig.strategy_id,
+                                  entry_confidence=sig.confidence)
         if result["accepted"]:
             pos = self.account.positions.get(symbol)
             if pos is not None:
@@ -267,7 +268,8 @@ class Runtime:
 
     # ── order gateway (risk + kill switch enforced) ─────────────────
 
-    def place_order(self, order: Order, strategy_id: Optional[str] = None) -> dict:
+    def place_order(self, order: Order, strategy_id: Optional[str] = None,
+                    entry_confidence: Optional[float] = None) -> dict:
         # 1) kill-switch gate
         if not order.reduce_only:
             blocked = self.kill.entries_blocked(order.symbol, strategy_id)
@@ -295,7 +297,8 @@ class Runtime:
             return {"accepted": False, "reasons": decision.reasons}
 
         # 3) submit to executor
-        self.engine.submit(order, int(time.time() * 1000), strategy_id=strategy_id)
+        self.engine.submit(order, int(time.time() * 1000), strategy_id=strategy_id,
+                           entry_confidence=entry_confidence)
         if book:                       # let it interact with the current book immediately
             self.engine.on_book(book)
         return {"accepted": True, "order_id": order.id, "status": order.status.value}

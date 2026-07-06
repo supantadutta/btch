@@ -110,7 +110,7 @@ def run_backtest(
         o = Order(symbol=symbol, side=want, type=OrderType.MARKET, qty=qty,
                   leverage=Decimal("3"), source="signal", reason=sig.reasoning[:200])
         engine.submit(o, now_ms=c.ts_ms, entry_reason=sig.reasoning[:200],
-                      strategy_id=sig.strategy_id)
+                      strategy_id=sig.strategy_id, entry_confidence=sig.confidence)
         engine.on_book(book)
         newpos = account.positions.get(symbol)
         if newpos is not None:

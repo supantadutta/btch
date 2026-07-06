@@ -351,6 +351,22 @@ async def monte_carlo(request: Request, paths: int = 2000, horizon: int = 100):
     return {"data": res.__dict__}
 
 
+@router.get("/analytics/pnl")
+async def pnl_grouped(request: Request, group_by: str = "symbol"):
+    """Net PnL grouped by 'symbol' or 'strategy' (with win rate + profit factor)."""
+    if group_by not in ("symbol", "strategy"):
+        raise HTTPException(400, "group_by must be 'symbol' or 'strategy'")
+    trades = rt(request).account.closed_trades
+    return {"data": {"group_by": group_by, "groups": metrics.pnl_by_group(trades, group_by)}}
+
+
+@router.get("/analytics/confidence-scatter")
+async def confidence_scatter(request: Request):
+    """Confidence-to-result correlation: (entry confidence → realized PnL) per
+    trade. Empty until strategy-driven (autotrade/backtest) trades close."""
+    return {"data": metrics.confidence_scatter(rt(request).account.closed_trades)}
+
+
 @router.get("/analytics/sessions")
 async def sessions(request: Request):
     """PnL by session: UTC hour-of-day and weekday, with best/worst callouts."""
