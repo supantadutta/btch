@@ -49,6 +49,8 @@ class PaperAccount:
         Fees always reduce balance immediately. Returns the affected position
         (or None if the symbol is now flat)."""
         self.balance -= fill.fee
+        # Attribution only: the adverse slippage is already priced into fill.price.
+        slip = fill.qty * fill.price * fill.slippage_bps / Decimal(10_000)
         pos = self.positions.get(fill.symbol)
 
         if pos is None:
@@ -56,11 +58,13 @@ class PaperAccount:
                 symbol=fill.symbol, side=fill.side, qty=fill.qty, avg_entry=fill.price,
                 leverage=leverage, entry_reason=entry_reason, strategy_id=strategy_id,
                 entry_confidence=entry_confidence, opened_ts_ms=fill.ts_ms, fees_paid=fill.fee,
+                slippage_cost=slip,
             )
             self.positions[fill.symbol] = pos
             return pos
 
         pos.fees_paid += fill.fee
+        pos.slippage_cost += slip
 
         if fill.side == pos.side:  # add: recompute average entry
             total = pos.qty + fill.qty

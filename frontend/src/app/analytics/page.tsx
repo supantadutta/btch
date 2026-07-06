@@ -164,6 +164,7 @@ export default function Analytics() {
               <Row label="Gross loss" value={fmtUsd(-perf.gross_loss)} cls="text-down" />
               <Row label="Fees paid" value={fmtUsd(-perf.fees_total)} cls="text-text-dim" />
               <Row label="Funding paid" value={fmtUsd(-perf.funding_total)} cls="text-text-dim" />
+              <Row label="Slippage impact" value={fmtUsd(-perf.slippage_total)} cls="text-text-dim" />
               <Row label="Avg hold (min)" value={perf.avg_hold_time_min.toFixed(0)} />
               <Row label="Sharpe-like" value={perf.sharpe_like?.toFixed(2) ?? "—"} />
             </div>

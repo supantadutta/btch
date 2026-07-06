@@ -31,6 +31,7 @@ class PerformanceReport:
     avg_hold_time_min: float
     fees_total: float
     funding_total: float
+    slippage_total: float      # attribution: adverse slippage already priced into PnL
 
 
 def equity_curve(starting: float, trades: Sequence[ClosedTrade]) -> List[float]:
@@ -83,6 +84,8 @@ def performance(starting_balance: float, trades: Sequence[ClosedTrade]) -> Perfo
         avg_hold_time_min=sum(holds) / len(holds) if holds else 0.0,
         fees_total=float(sum((t.position.fees_paid for t in trades), Decimal(0))),
         funding_total=float(sum((t.position.funding_paid for t in trades), Decimal(0))),
+        slippage_total=float(sum((getattr(t.position, "slippage_cost", Decimal(0))
+                                  for t in trades), Decimal(0))),
     )
 
 

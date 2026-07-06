@@ -157,6 +157,9 @@ class Position:
     realized_pnl: Decimal = ZERO
     fees_paid: Decimal = ZERO
     funding_paid: Decimal = ZERO
+    # Cumulative adverse slippage in quote terms. Attribution only — it is ALREADY
+    # reflected in the fill prices (and therefore in PnL); never double-deducted.
+    slippage_cost: Decimal = ZERO
     stop_loss: Optional[Decimal] = None
     take_profit: Optional[Decimal] = None
     entry_reason: str = ""
