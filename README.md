@@ -29,6 +29,10 @@ docker-compose.yml   Postgres 16 + Redis 7 + backend + frontend
 
 ## Quick start
 
+**→ Want live market data + auto paper-trading in 5 minutes? See [QUICKSTART.md](QUICKSTART.md)** —
+including how to *verify* the data is real (`/api/v1/admin/data-proof`) and the
+honest protocol for judging whether a strategy could ever handle real money.
+
 ```bash
 cp .env.example .env
 docker compose up -d postgres redis

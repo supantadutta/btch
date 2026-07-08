@@ -553,6 +553,48 @@ async def admin_execution(request: Request):
     }}
 
 
+@router.get("/admin/data-proof")
+async def data_proof(request: Request):
+    """Data-authenticity check: shows exactly what data is driving the engine so
+    you can verify it yourself. In live mode, cross-check `last_price` against
+    any independent source (e.g. google 'BTC price') — it should match within
+    normal market movement. In replay mode this endpoint says so loudly."""
+    r = rt(request)
+    src = r.settings.data_source
+    out = {
+        "data_source": src,
+        "verdict": ("LIVE exchange data — cross-check prices independently"
+                    if src == "live" else
+                    "REPLAY — SYNTHETIC dev data, NOT real prices; do not use for analysis"),
+        "provider": r.provider.name,
+        "endpoints": ({"rest": r.settings.bybit_rest_url,
+                       "ws": r.settings.bybit_ws_public_url}
+                      if r.provider.name == "bybit" else {}),
+        "symbols": {},
+    }
+    now_ms = int(time.time() * 1000)
+    for sym in r.symbols:
+        t = r.hub.tickers.get(sym, {})
+        book = r.hub.books.get(sym)
+        out["symbols"][sym] = {
+            "last_price": t.get("lastPrice"),
+            "mark_price": t.get("markPrice"),
+            "funding_rate": t.get("fundingRate"),
+            "best_bid": str(book.bid) if book else None,
+            "best_ask": str(book.ask) if book else None,
+            "data_age_s": round(r.hub.data_age_s(sym), 2),
+            "candles_held": len(r.hub.candles.get(sym, [])),
+            "feed": r.hub.health()["source"],
+        }
+    out["how_to_verify"] = [
+        "1. Compare last_price to an independent source (TradingView, exchange site, web search).",
+        "2. data_age_s should be seconds, not minutes.",
+        "3. data_source must be 'live' — 'replay' means synthetic dev data.",
+        "4. Restart the app and re-check: live prices move with the market; replay repeats its pattern.",
+    ]
+    return {"data": out}
+
+
 @router.get("/admin/health")
 async def admin_health(request: Request):
     r = rt(request)
