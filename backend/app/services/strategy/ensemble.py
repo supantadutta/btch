@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence
 
+from . import indicators as ta
 from .base import Candle, Direction, HoldingStyle, MarketState, Regime, Signal, Strategy
 
 REGIME_ROUTING: Dict[Regime, Dict[str, float]] = {
@@ -26,10 +27,40 @@ class EnsembleResult:
     vetoes: List[Signal]
 
 
+# Higher-timeframe alignment: base candles are resampled 4:1 (e.g. 15m → 1h)
+# and an EMA pair decides the dominant trend. Counter-trend votes keep only
+# COUNTER_TREND_DAMP of their score — trading against the dominant trend is the
+# classic source of low-quality chop entries.
+HTF_RESAMPLE_FACTOR = 4
+HTF_EMA_FAST, HTF_EMA_SLOW = 21, 55
+COUNTER_TREND_DAMP = 0.4
+
+
+def htf_bias(candles: Sequence[Candle], factor: int = HTF_RESAMPLE_FACTOR) -> Direction:
+    """Dominant higher-timeframe direction from resampled real candles.
+    Fails open to NEUTRAL (no gating) when history is insufficient."""
+    if factor < 1 or len(candles) < HTF_EMA_SLOW * factor:
+        return Direction.NEUTRAL
+    closes = [c.close for c in candles]
+    # Close of each factor-sized block = the HTF close series.
+    htf_closes = [closes[i + factor - 1] for i in range(0, len(closes) - factor + 1, factor)]
+    fast = ta.ema(htf_closes, HTF_EMA_FAST)[-1]
+    slow = ta.ema(htf_closes, HTF_EMA_SLOW)[-1]
+    if fast is None or slow is None:
+        return Direction.NEUTRAL
+    if fast > slow:
+        return Direction.LONG
+    if fast < slow:
+        return Direction.SHORT
+    return Direction.NEUTRAL
+
+
 class Ensemble:
-    def __init__(self, strategies: Sequence[Strategy], min_confidence: float = 0.35):
+    def __init__(self, strategies: Sequence[Strategy], min_confidence: float = 0.35,
+                 counter_trend_damp: float = COUNTER_TREND_DAMP):
         self.strategies = list(strategies)
         self.min_confidence = min_confidence
+        self.counter_trend_damp = counter_trend_damp
 
     def evaluate(self, candles: Sequence[Candle], market: MarketState) -> EnsembleResult:
         votes: List[Signal] = []
@@ -76,13 +107,26 @@ class Ensemble:
         if total_weight == 0 or best is None:
             return EnsembleResult(self._flat(market, ts, "no directional votes", regime), votes, vetoes)
 
+        # Higher-timeframe alignment gate: dampen counter-trend conviction.
+        # An explicit market.htf_bias (from a real HTF feed) takes precedence;
+        # otherwise the bias is derived by resampling the base candles.
+        bias = market.htf_bias if market.htf_bias is not Direction.NEUTRAL \
+            else htf_bias(candles)
+        htf_note = ""
+        if bias is Direction.LONG and short_score > 0:
+            short_score *= self.counter_trend_damp
+            htf_note = f" [HTF bias long: short votes damped ×{self.counter_trend_damp}]"
+        elif bias is Direction.SHORT and long_score > 0:
+            long_score *= self.counter_trend_damp
+            htf_note = f" [HTF bias short: long votes damped ×{self.counter_trend_damp}]"
+
         net = (long_score - short_score) / total_weight
         confidence = abs(net)
         if confidence < self.min_confidence:
             return EnsembleResult(
                 self._flat(market, ts,
                            f"net conviction {net:+.2f} below threshold {self.min_confidence} "
-                           f"(long {long_score:.2f} vs short {short_score:.2f})", regime),
+                           f"(long {long_score:.2f} vs short {short_score:.2f}){htf_note}", regime),
                 votes, vetoes)
 
         direction = Direction.LONG if net > 0 else Direction.SHORT
@@ -92,7 +136,7 @@ class Ensemble:
         combined = Signal(
             strategy_id="ensemble", symbol=market.symbol, ts_ms=ts,
             direction=direction, confidence=round(min(confidence, 0.95), 3),
-            reasoning=f"[regime: {regime.value}] " + " | ".join(contributions),
+            reasoning=f"[regime: {regime.value}]{htf_note} " + " | ".join(contributions),
             invalidation=lead.invalidation,
             holding_style=lead.holding_style if lead else HoldingStyle.INTRADAY,
             suggested_stop=lead.suggested_stop, suggested_target=lead.suggested_target,

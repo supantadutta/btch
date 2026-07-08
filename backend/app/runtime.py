@@ -95,6 +95,7 @@ class Runtime:
         self.day_pnl_anchor = self.account.starting_balance
         self.peak_equity = self.account.starting_balance
         self.consecutive_losses = 0
+        self.last_loss_ms: Optional[int] = None
 
         # WS broadcast hooks set by the ws layer.
         self.broadcast: Optional[Callable[[str, dict], None]] = None
@@ -219,9 +220,11 @@ class Runtime:
             self.broadcast("account.fills", rec)
 
     def _track_trade_outcome(self, trade) -> None:
-        """Maintain the consecutive-loss counter that feeds the risk cooldown."""
+        """Maintain the consecutive-loss counter + last-loss time that feed the
+        risk cooldown (the cooldown expires cooldown_minutes after the last loss)."""
         if trade.pnl < ZERO:
             self.consecutive_losses += 1
+            self.last_loss_ms = trade.closed_ts_ms or int(time.time() * 1000)
         else:
             self.consecutive_losses = 0
 
@@ -318,6 +321,9 @@ class Runtime:
             total_notional=self.account.exposure(marks),
             symbol_notional=(pos.notional if pos else ZERO),
             consecutive_losses=self.consecutive_losses,
+            minutes_since_last_loss=(
+                int((time.time() * 1000 - self.last_loss_ms) / 60_000)
+                if self.last_loss_ms else None),
         )
         mkt = MarketRiskState(
             spread_bps=Decimal(str(self._spread_bps(order.symbol))),
