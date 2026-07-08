@@ -557,6 +557,8 @@ async def admin_execution(request: Request):
 async def admin_health(request: Request):
     r = rt(request)
     return {"data": {"mode": r.settings.vantage_mode, "symbols": r.symbols,
+                     "data_source": r.settings.data_source,
+                     "autotrade": r.autotrade_enabled,
                      "market": r.hub.health(),
                      "kill_switches": len([s for s in r.kill.status()
                                            if s.state.value != "armed"])}}

@@ -21,14 +21,19 @@ MARK = Decimal("100000")
 EQ = Decimal("100000")
 
 
-def test_enter_long_sized_by_risk():
+def test_enter_long_sized_by_risk_capped_by_exposure():
     plan = plan_autotrade(sig(), MARK, EQ, None, RISK)
     assert plan.action == "enter"
     assert plan.order.side is Side.BUY
-    # 1% of 100k = 1000 risk / 1000 stop distance = 1.0 BTC
-    assert plan.order.qty == Decimal("1.000")
+    # Pure risk sizing says 1.0 BTC (1% of 100k / 1000 stop dist) — but that is
+    # $100k notional on $100k equity. The exposure cap (50% × 0.95 headroom)
+    # correctly reduces it to 0.475 BTC so the risk engine can actually accept it.
+    assert plan.order.qty == Decimal("0.475")
     assert plan.order.trigger_price == Decimal("99000")   # carried for risk-check sizing
     assert plan.stop_loss == Decimal("99000") and plan.take_profit == Decimal("103000")
+    # protections travel on the order for latency-safe attachment at fill time
+    assert plan.order.attach_stop_loss == Decimal("99000")
+    assert plan.order.attach_take_profit == Decimal("103000")
 
 
 def test_neutral_skipped():

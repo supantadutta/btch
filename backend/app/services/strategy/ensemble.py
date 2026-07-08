@@ -56,7 +56,13 @@ def htf_bias(candles: Sequence[Candle], factor: int = HTF_RESAMPLE_FACTOR) -> Di
 
 
 class Ensemble:
-    def __init__(self, strategies: Sequence[Strategy], min_confidence: float = 0.35,
+    # Default threshold: 0.25 (was 0.35). Neutral votes dilute the net score by
+    # design (total_weight spans all directional strategies), so 0.35 meant a
+    # single high-conviction voter could essentially never act — in practice the
+    # ensemble almost never traded. At 0.25, one strong voter (≥0.75 conf across
+    # 3 strategies) or two agreeing moderate voters clear the bar; regime routing
+    # still reweights per market state.
+    def __init__(self, strategies: Sequence[Strategy], min_confidence: float = 0.25,
                  counter_trend_damp: float = COUNTER_TREND_DAMP):
         self.strategies = list(strategies)
         self.min_confidence = min_confidence

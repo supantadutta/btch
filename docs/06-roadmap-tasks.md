@@ -6,6 +6,8 @@
 - [x] Monorepo scaffold (backend, frontend, compose, docs) ← this commit
 - [x] Config, logging, DB models, event bus, provider abstractions ← this commit
 - [x] Bybit public REST backfill + WS streaming client with reconnect/staleness ← this commit
+- [x] REST polling fallback when WS is down/blocked (docs/02 §5) + candle-history seeding at startup ← trade-loop commit
+- [x] Stale-data kill switches auto-clear on data recovery (hard/loss trips still need human ack) ← trade-loop commit
 - [x] Alembic migrations (baseline schema, upgrade/downgrade verified) ← migrations commit
 - [x] Candle gap reconciler (timestamp-grid gap detection + REST backfill, 5-min loop) ← reconciler commit
 - [ ] Auth (register/login/JWT/roles) + audit middleware

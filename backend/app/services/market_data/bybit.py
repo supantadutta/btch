@@ -94,6 +94,29 @@ class BybitProvider(MarketDataProvider):
         return [{"symbol": symbol, "ts_ms": int(x["fundingRateTimestamp"]),
                  "rate": float(x["fundingRate"])} for x in res.get("list", [])]
 
+    # ── REST snapshots (polling fallback when the WS is down/blocked) ──
+
+    async def ticker_snapshot(self, symbol: str) -> Dict[str, Any]:
+        res = await self._get("/v5/market/tickers", {"category": "linear", "symbol": symbol})
+        items = res.get("list", [])
+        return items[0] if items else {}
+
+    async def orderbook_top(self, symbol: str) -> Dict[str, Any]:
+        res = await self._get("/v5/market/orderbook",
+                              {"category": "linear", "symbol": symbol, "limit": 1})
+        return {"bids": res.get("b", []), "asks": res.get("a", []),
+                "ts_ms": int(res.get("ts", time.time() * 1000))}
+
+    async def latest_klines(self, symbol: str, tf: str = "1m", limit: int = 3) -> List[Dict[str, Any]]:
+        res = await self._get("/v5/market/kline", {
+            "category": "linear", "symbol": symbol, "interval": TF_MAP[tf], "limit": limit})
+        out = []
+        for k in res.get("list", []):   # newest first from Bybit
+            out.append({"start": int(k[0]), "open": k[1], "high": k[2], "low": k[3],
+                        "close": k[4], "volume": k[5]})
+        out.sort(key=lambda x: x["start"])
+        return out
+
     # ── WebSocket ───────────────────────────────────────────────────
 
     def _topics(self, symbols: Sequence[str], channels: Sequence[Channel]) -> List[str]:

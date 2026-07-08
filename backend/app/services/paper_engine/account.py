@@ -56,7 +56,8 @@ class PaperAccount:
         if pos is None:
             pos = Position(
                 symbol=fill.symbol, side=fill.side, qty=fill.qty, avg_entry=fill.price,
-                leverage=leverage, entry_reason=entry_reason, strategy_id=strategy_id,
+                leverage=leverage, initial_qty=fill.qty,
+                entry_reason=entry_reason, strategy_id=strategy_id,
                 entry_confidence=entry_confidence, opened_ts_ms=fill.ts_ms, fees_paid=fill.fee,
                 slippage_cost=slip,
             )
@@ -70,6 +71,7 @@ class PaperAccount:
             total = pos.qty + fill.qty
             pos.avg_entry = (pos.avg_entry * pos.qty + fill.price * fill.qty) / total
             pos.qty = total
+            pos.initial_qty += fill.qty
             return pos
 
         # Opposite side: reduce / close / flip
@@ -86,7 +88,8 @@ class PaperAccount:
             if leftover > ZERO:  # flip: remainder opens a new opposite position
                 flip = Position(
                     symbol=fill.symbol, side=fill.side, qty=leftover, avg_entry=fill.price,
-                    leverage=leverage, entry_reason=entry_reason or "flip", strategy_id=strategy_id,
+                    leverage=leverage, initial_qty=leftover,
+                    entry_reason=entry_reason or "flip", strategy_id=strategy_id,
                     opened_ts_ms=fill.ts_ms,
                 )
                 self.positions[fill.symbol] = flip

@@ -47,7 +47,13 @@ class Runtime:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.symbols = settings.symbol_list
-        self.provider = make_provider(settings.market_provider, settings)
+        if settings.data_source == "replay":
+            # Clearly-labeled synthetic dev harness (see replay.py docstring);
+            # the UI renders a permanent REPLAY badge whenever this is active.
+            from .services.market_data.replay import ReplayProvider
+            self.provider = ReplayProvider()
+        else:
+            self.provider = make_provider(settings.market_provider, settings)
         self.hub = MarketHub(
             self.provider, self.symbols,
             staleness_warn_s=settings.staleness_warn_s,
@@ -80,9 +86,10 @@ class Runtime:
         self.audit = AuditService(sink=self.persistence.record_audit)
         self.users = UserStore()
 
-        # Autotrade is opt-in and OFF by default — signals are surfaced for
-        # human review unless explicitly enabled (a human stays in the loop).
-        self.autotrade_enabled = False
+        # Autotrade is opt-in (default OFF) — enable at boot via AUTOTRADE=true
+        # or at runtime via POST /autotrade. Orders still pass the full risk +
+        # kill-switch gate either way.
+        self.autotrade_enabled = settings.autotrade
         # Set True once a backtest of the active strategy set comes back positive
         # (feeds the readiness score's "confirmed in backtest" check).
         self._backtest_confirmed = False
@@ -112,9 +119,28 @@ class Runtime:
         if restored:
             self.peak_equity = max(self.peak_equity, self._equity())
         self.persistence.start()
+        await self._seed_candle_history()
         self.hub.start()
         self._monitor_task = asyncio.create_task(self._quality_monitor(), name="quality-monitor")
         self._reconcile_task = asyncio.create_task(self._reconcile_loop(), name="candle-reconciler")
+
+    async def _seed_candle_history(self) -> None:
+        """Cold-start fix: backfill recent candles so strategies have indicator
+        warmup immediately instead of waiting hours for live bars to accumulate.
+        Failure is non-fatal — the hub then warms up from the live stream."""
+        now = int(time.time() * 1000)
+        for sym in self.symbols:
+            try:
+                rows = await self.provider.backfill_candles(
+                    sym, self.settings.base_timeframe, now - 500 * 60_000, now)
+                for r in rows[-500:]:
+                    self.hub.candles[sym].append(
+                        Candle(ts_ms=r.ts_ms, open=r.open, high=r.high, low=r.low,
+                               close=r.close, volume=r.volume))
+                if rows:
+                    logger.info("seeded {} candles for {}", len(rows), sym)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("candle seed failed for {} ({}); warming up live", sym, exc)
 
     async def stop(self) -> None:
         await self.hub.stop()
@@ -180,11 +206,8 @@ class Runtime:
         result = self.place_order(plan.order, strategy_id=sig.strategy_id,
                                   entry_confidence=sig.confidence)
         if result["accepted"]:
-            pos = self.account.positions.get(symbol)
-            if pos is not None:
-                pos.stop_loss = plan.stop_loss
-                pos.take_profit = plan.take_profit
-                self.persistence.record_position(pos)
+            # SL/TP travel on the order and attach at fill time (latency-safe);
+            # _on_fill persists the position including its protections.
             logger.info("autotrade {}: {}", symbol, plan.reason)
             if self.broadcast:
                 self.broadcast("account.autotrade",
@@ -346,6 +369,18 @@ class Runtime:
                         age_txt = "no data yet" if age > 1e6 else f"data stale {age:.0f}s"
                         self.kill.trip(f"symbol:{sym}", AUTO_TRIGGERS["stale_market_data"],
                                        age_txt, actor="quality_monitor")
+                    elif age < self.settings.staleness_warn_s:
+                        # Data recovered: auto-clear a soft stale-data trip so a
+                        # transient outage doesn't halt trading forever. Only
+                        # data-caused soft trips clear; loss/vol/hard trips still
+                        # require the human ack → re-arm flow.
+                        sw = self.kill.switches.get(f"symbol:{sym}")
+                        if (sw is not None and sw.state.value == "tripped"
+                                and sw.level is not None and sw.level.value == "soft"
+                                and ("stale" in sw.reason or "no data" in sw.reason)):
+                            if self.kill.auto_clear(f"symbol:{sym}", actor="quality_monitor"):
+                                self.emit_alert("info", "risk", f"Data recovered: {sym}",
+                                                "stale-data kill switch auto-cleared; trading resumed")
                     # Volatility spike from real candles (ATR as % of price).
                     atr_pct = self._atr_pct(sym)
                     if atr_pct is not None:
@@ -458,6 +493,7 @@ class Runtime:
         eq = self.account.equity(marks)
         return {
             "mode": self.settings.vantage_mode,
+            "data_source": self.settings.data_source,     # 'live' | 'replay'
             "autotrade_enabled": self.autotrade_enabled,
             "persistence": "on" if self.persistence.enabled else "off",
             "equity": str(round(eq, 2)),

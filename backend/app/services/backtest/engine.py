@@ -86,8 +86,8 @@ def run_backtest(
             continue
 
         entry, stop = Decimal(str(c.close)), Decimal(str(sig.suggested_stop))
-        qty = risk.position_size(account.equity(marks), entry, stop,
-                                 Decimal(str(sig.suggested_risk_pct or 0.5)))
+        qty = risk.capped_position_size(account.equity(marks), entry, stop,
+                                        Decimal(str(sig.suggested_risk_pct or 0.5)))
         qty = qty.quantize(Decimal("0.001"))
         if qty <= ZERO:
             continue
@@ -108,14 +108,12 @@ def run_backtest(
             continue
 
         o = Order(symbol=symbol, side=want, type=OrderType.MARKET, qty=qty,
-                  leverage=Decimal("3"), source="signal", reason=sig.reasoning[:200])
+                  leverage=Decimal("3"), source="signal", reason=sig.reasoning[:200],
+                  attach_stop_loss=stop,
+                  attach_take_profit=(Decimal(str(sig.suggested_target))
+                                      if sig.suggested_target is not None else None))
         engine.submit(o, now_ms=c.ts_ms, entry_reason=sig.reasoning[:200],
                       strategy_id=sig.strategy_id, entry_confidence=sig.confidence)
         engine.on_book(book)
-        newpos = account.positions.get(symbol)
-        if newpos is not None:
-            newpos.stop_loss = stop
-            if sig.suggested_target is not None:
-                newpos.take_profit = Decimal(str(sig.suggested_target))
 
     return account

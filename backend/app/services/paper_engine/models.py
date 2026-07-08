@@ -93,6 +93,11 @@ class Order:
     reduce_only: bool = False
     tif: TimeInForce = TimeInForce.GTC
     leverage: Decimal = Decimal(1)
+    # Protections to attach to the position AT FILL TIME. Fills are deferred by
+    # the latency model, so setting SL/TP on the position right after submit is
+    # a race (no position exists yet) — they must travel with the order.
+    attach_stop_loss: Optional[Decimal] = None
+    attach_take_profit: Optional[Decimal] = None
     source: str = "manual"                   # manual | signal | risk_engine | kill_switch
     reason: str = ""
     signal_id: Optional[str] = None
@@ -152,6 +157,9 @@ class Position:
     qty: Decimal
     avg_entry: Decimal
     leverage: Decimal
+    # Total quantity ever opened into this position (adds included, reduces not).
+    # qty goes to zero on close; this preserves the stake for reporting.
+    initial_qty: Decimal = ZERO
     margin_mode: str = "isolated"
     maintenance_margin_rate: Decimal = Decimal("0.005")
     realized_pnl: Decimal = ZERO

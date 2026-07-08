@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     secret_encryption_key: str = ""
 
     market_provider: str = "bybit"      # bybit | binance
+    # 'live' = real exchange data (default). 'replay' = clearly-labeled synthetic
+    # dev harness for exercising the trade loop where exchanges are unreachable;
+    # the UI shows a non-dismissable REPLAY badge and analytics are marked non-live.
+    data_source: str = "live"
+    autotrade: bool = False             # gated auto-execution on from boot
     bybit_rest_url: str = "https://api.bybit.com"
     bybit_ws_public_url: str = "wss://stream.bybit.com/v5/public/linear"
     symbols: str = "BTCUSDT,ETHUSDT"

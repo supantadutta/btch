@@ -58,7 +58,9 @@ def money_ledger(
         cash_before = running
         running = running + t.pnl
         pos = t.position
-        stake = (pos.qty * pos.avg_entry / pos.leverage) if pos.leverage else pos.qty * pos.avg_entry
+        # qty is zero once closed; initial_qty preserves the stake actually deployed
+        stake_qty = pos.initial_qty or pos.qty
+        stake = (stake_qty * pos.avg_entry / pos.leverage) if pos.leverage else stake_qty * pos.avg_entry
         rows.append({
             "ts_ms": t.closed_ts_ms, "bot": pos.strategy_id or "manual", "market": pos.symbol,
             "direction": "long" if pos.side is Side.BUY else "short",

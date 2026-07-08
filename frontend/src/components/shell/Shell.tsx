@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { MarketSocket, WsStatus } from "@/lib/ws";
+import { usePoll } from "@/lib/hooks";
 import { CommandPalette } from "@/components/CommandPalette";
 import { Onboarding } from "@/components/Onboarding";
 
@@ -23,6 +24,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [status, setStatus] = useState<WsStatus>("connecting");
+  const { data: health } = usePoll<any>("/admin/health", 10000);
+  const isReplay = health?.data_source === "replay";
 
   useEffect(() => {
     const sock = new MarketSocket(undefined, setStatus, ["system", "risk"]);
@@ -48,6 +51,16 @@ export function Shell({ children }: { children: ReactNode }) {
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/30 font-medium">
             PAPER
           </span>
+          {isReplay && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-warn/15 text-warn border border-warn/40 font-medium animate-pulse">
+              ⚠ REPLAY DATA — NOT LIVE
+            </span>
+          )}
+          {health?.autotrade && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-up/10 text-up border border-up/30 font-medium">
+              AUTOTRADE ON
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-4 text-[12px]">
           <div className="flex items-center gap-1.5 text-text-dim">

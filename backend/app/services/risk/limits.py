@@ -144,3 +144,17 @@ class RiskEngine:
         if stop_dist == ZERO:
             return ZERO
         return (equity * risk_pct / 100) / stop_dist
+
+    def capped_position_size(
+        self, equity: Decimal, entry: Decimal, stop: Decimal,
+        risk_pct: Optional[Decimal] = None, headroom: Decimal = Decimal("0.95"),
+    ) -> Decimal:
+        """Risk-based size, capped so the resulting NOTIONAL respects the symbol
+        exposure limit. Pure risk÷stop-distance sizing explodes notionally when
+        stops are tight (tight stop → huge qty → instant exposure rejection), so
+        every automated sizing path must use this, not position_size alone."""
+        qty = self.position_size(equity, entry, stop, risk_pct)
+        if entry > ZERO:
+            cap = equity * self.limits.max_symbol_exposure_pct / 100 * headroom / entry
+            qty = min(qty, cap)
+        return qty

@@ -135,6 +135,13 @@ class PaperEngine:
                 exit_reason=p.exit_reason or order.reason,
                 strategy_id=p.strategy_id, entry_confidence=p.entry_confidence,
             )
+            # Attach protections at fill time (see Order.attach_* rationale).
+            pos = self.account.positions.get(order.symbol)
+            if pos is not None and pos.side == order.side:
+                if order.attach_stop_loss is not None:
+                    pos.stop_loss = order.attach_stop_loss
+                if order.attach_take_profit is not None:
+                    pos.take_profit = order.attach_take_profit
             if self.on_fill:
                 self.on_fill(result.fill)
         order.status = result.order_status

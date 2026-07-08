@@ -93,6 +93,18 @@ class KillSwitchRegistry:
         self._log(scope, "rearmed", None, "", actor)
         return sw
 
+    def auto_clear(self, scope: str, actor: str = "system") -> bool:
+        """System-initiated recovery for SOFT trips whose cause has resolved
+        (e.g. market data resumed). Hard trips and acknowledged states still
+        require the human ack → re-arm flow — auto-clear refuses them."""
+        sw = self.switches.get(scope)
+        if sw is None or sw.state is not State.TRIPPED or sw.level is not Level.SOFT:
+            return False
+        sw.state, sw.level, sw.reason = State.ARMED, None, ""
+        sw.tripped_at = None
+        self._log(scope, "auto_cleared", "soft", "condition resolved", actor)
+        return True
+
     # ── queries used by the execution gate ──────────────────────────
 
     def _active(self, scopes: List[str]) -> List[Switch]:

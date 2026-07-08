@@ -34,7 +34,10 @@ def plan_autotrade(
     current: Optional[Position],
     risk: RiskEngine,
     leverage: Decimal = Decimal("3"),
-    min_confidence: float = 0.4,
+    # Aligned with the ensemble's threshold: the ensemble's net conviction for a
+    # single strong voter tops out near ~0.3, so a 0.4 floor here silently
+    # skipped nearly every signal.
+    min_confidence: float = 0.25,
     qty_step: Decimal = Decimal("0.001"),
 ) -> AutotradePlan:
     if signal.direction is Direction.NEUTRAL:
@@ -57,18 +60,19 @@ def plan_autotrade(
     entry = mark
     stop = Decimal(str(signal.suggested_stop))
     risk_pct = Decimal(str(signal.suggested_risk_pct or 0.5))
-    qty = risk.position_size(equity, entry, stop, risk_pct)
+    qty = risk.capped_position_size(equity, entry, stop, risk_pct)
     qty = qty.quantize(qty_step)
     if qty <= ZERO:
         return AutotradePlan("skip", reason="risk-based size rounded to zero")
 
+    target = Decimal(str(signal.suggested_target)) if signal.suggested_target else None
     order = Order(
         symbol=signal.symbol, side=want, type=OrderType.MARKET, qty=qty,
         leverage=leverage, trigger_price=stop,   # carried for the risk check's stop distance
+        attach_stop_loss=stop, attach_take_profit=target,   # applied at fill time
         source="signal", reason=signal.reasoning[:200], signal_id=signal.strategy_id,
     )
     return AutotradePlan(
-        action=action, order=order, stop_loss=stop,
-        take_profit=Decimal(str(signal.suggested_target)) if signal.suggested_target else None,
+        action=action, order=order, stop_loss=stop, take_profit=target,
         reason=f"{action} {want.value} {qty} @ ~{entry} (risk {risk_pct}% to stop {stop})",
     )
